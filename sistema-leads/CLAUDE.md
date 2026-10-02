@@ -26,7 +26,8 @@ simples. Ele é independente do CRM do Carlos. Um eventual merge futuro é feito
 
 - Next.js (App Router, TypeScript). Server Actions para a UI, Route Handlers para ingestão e webhooks.
 - Postgres no Neon (integração da Vercel). Drizzle ORM + drizzle-kit, migrações versionadas no repo.
-- Driver: `drizzle-orm/neon-http` agora; `drizzle-orm/node-postgres` se migrar para a VPS.
+- Driver: `drizzle-orm/neon-serverless` (WebSocket, com transações interativas) agora; `drizzle-orm/node-postgres`
+  em localhost e se migrar para a VPS. O núcleo (normalização, identidade, entradas) fica em `src/nucleo/`.
 - Auth: Better Auth com adapter Drizzle, e-mail e senha, papéis `gestao` e `comercial`.
   Cadastro fechado: só a gestão cria usuário.
 - UI: Tailwind + shadcn/ui. Kanban com dnd-kit.
