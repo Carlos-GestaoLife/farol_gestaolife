@@ -165,6 +165,8 @@ Gravar o payload cru. Chave = sha256 do payload. Campos esperados nas LPs: nome,
 e os ocultos `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`, `origem`, `fbclid`.
 Validar na prática o formato que o Framer envia antes de escrever o parser.
 
+Roteiro de configuração e teste real dos dois webhooks (Framer e Meta): `docs/WEBHOOKS.md`.
+
 ### Fase 2
 `POST /api/webhooks/hotmart` (validar `hottok`, chave = transação + evento) e o webhook da plataforma
 onde o Gestão PRO é pago (a definir).

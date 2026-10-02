@@ -1,7 +1,8 @@
 import { and, eq, gte, isNotNull, lte, min, ne, sql } from "drizzle-orm";
 import type { Tx } from "@/db";
-import { mensagens, origens, pessoas } from "@/db/schema";
+import { mensagens, origens } from "@/db/schema";
 import { atribuirOrigem } from "../atribuicao";
+import { registrarDataContato } from "../contato";
 import { definirEstagioInicialSeVazio, moverEstagioAutomatico } from "../estagios";
 import { inserirEventoSeNaoExiste } from "../eventos";
 import { montarIdentificadores, resolverPessoa } from "../identidade";
@@ -156,13 +157,5 @@ export async function processarWhatsapp(tx: Tx, entrada: EntradaBruta): Promise<
   }
 
   // Cache das datas de contato (derivado das mensagens; pode ser recalculado).
-  const em = sql`${enviadaEm.toISOString()}::timestamptz`;
-  await tx
-    .update(pessoas)
-    .set({
-      primeiroContatoEm: sql`least(coalesce(${pessoas.primeiroContatoEm}, ${em}), ${em})`,
-      ultimoContatoEm: sql`greatest(coalesce(${pessoas.ultimoContatoEm}, ${em}), ${em})`,
-      atualizadoEm: new Date(),
-    })
-    .where(eq(pessoas.id, pessoaId));
+  await registrarDataContato(tx, pessoaId, enviadaEm);
 }

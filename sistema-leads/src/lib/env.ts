@@ -16,13 +16,15 @@ export const envSchema = z.object({
     .min(32, "BETTER_AUTH_SECRET deve ter pelo menos 32 caracteres"),
   // URL pública do sistema (ex.: http://localhost:3000 ou https://farol-sistema-leads.vercel.app).
   BETTER_AUTH_URL: z.url({ error: "BETTER_AUTH_URL deve ser uma URL válida" }),
-  // Obrigatória a partir da Etapa 6 (webhook da Meta).
+  // Webhooks (Etapas 5 e 6): ficam opcionais aqui. As rotas leem estes segredos direto de
+  // process.env (src/lib/segredos.ts) e respondem 503 com mensagem clara quando faltam.
+  // App Secret do app da Meta: valida o header X-Hub-Signature-256 do webhook.
   META_APP_SECRET: z.string().min(1).optional(),
-  // Obrigatória a partir da Etapa 6 (webhook da Meta).
+  // Token combinado com a Meta na verificação GET do webhook (hub.verify_token).
   META_VERIFY_TOKEN: z.string().min(1).optional(),
-  // Obrigatória a partir da Etapa 6 (webhook da Meta).
+  // Token de acesso (longa duração) da página, para buscar o lead na Graph API.
   META_PAGE_ACCESS_TOKEN: z.string().min(1).optional(),
-  // Obrigatória a partir da Etapa 5 (webhook do Framer).
+  // Segredo do webhook do Framer, enviado na query string (?k=).
   FRAMER_WEBHOOK_SECRET: z.string().min(1).optional(),
   // Obrigatória a partir da Etapa 10 (reprocessamento).
   CRON_SECRET: z.string().min(1).optional(),
