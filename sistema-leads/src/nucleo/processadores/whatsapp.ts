@@ -1,14 +1,14 @@
 import { and, eq, gte, isNotNull, lte, min, ne, sql } from "drizzle-orm";
 import type { Tx } from "@/db";
 import { mensagens, origens } from "@/db/schema";
-import { atribuirOrigem } from "../atribuicao";
+import { atribuirOrigem, atualizarPrimeiroToque } from "../atribuicao";
 import { registrarDataContato } from "../contato";
 import { definirEstagioInicialSeVazio, moverEstagioAutomatico } from "../estagios";
 import { inserirEventoSeNaoExiste } from "../eventos";
 import { montarIdentificadores, resolverPessoa } from "../identidade";
 import { normalizarTelefone } from "../normalizacao";
 import { garantirNumero } from "../numeros";
-import type { EntradaBruta } from "../registro";
+import type { EntradaBruta, OpcoesProcessamento } from "../registro";
 import {
   JANELA_CONVERSA_DIAS,
   cortarTexto,
@@ -38,7 +38,11 @@ async function padroesAtivos(tx: Tx): Promise<string[]> {
   return linhas.map((l) => l.padrao).filter((p): p is string => Boolean(p && p.trim()));
 }
 
-export async function processarWhatsapp(tx: Tx, entrada: EntradaBruta): Promise<void> {
+export async function processarWhatsapp(
+  tx: Tx,
+  entrada: EntradaBruta,
+  opcoes: OpcoesProcessamento = {},
+): Promise<void> {
   const p = payloadEntradaWhatsappSchema.parse(entrada.payload);
 
   const numero = normalizarTelefone(p.numero_monitorado);
@@ -110,23 +114,28 @@ export async function processarWhatsapp(tx: Tx, entrada: EntradaBruta): Promise<
   await definirEstagioInicialSeVazio(tx, pessoaId);
 
   if (abreConversa) {
-    // Etapa 8: atribuirOrigem passa a devolver a origem (ctwa, padrão de texto ou desconhecida).
+    // Origem do toque: ctwa, padrão de texto ou "WhatsApp direto (desconhecida)".
     const origemId = await atribuirOrigem(tx, {
       canal: "whatsapp",
       numeroMonitorado: numero,
       textoAbertura,
       ctwa: p.ctwa,
     });
-    await inserirEventoSeNaoExiste(tx, {
-      pessoaId,
-      tipo: "conversa_iniciada",
-      ocorridoEm: enviadaEm,
-      canal: "whatsapp",
-      origemId,
-      numeroMonitorado: numero,
-      entradaBrutaId: entrada.id,
-      dados: { chat_id: p.chat_id, texto_abertura: textoAbertura, ctwa: p.ctwa },
-    });
+    await inserirEventoSeNaoExiste(
+      tx,
+      {
+        pessoaId,
+        tipo: "conversa_iniciada",
+        ocorridoEm: enviadaEm,
+        canal: "whatsapp",
+        origemId,
+        numeroMonitorado: numero,
+        entradaBrutaId: entrada.id,
+        dados: { chat_id: p.chat_id, texto_abertura: textoAbertura, ctwa: p.ctwa },
+      },
+      { permitirReatribuicao: opcoes.forcar === true },
+    );
+    if (origemId) await atualizarPrimeiroToque(tx, pessoaId);
   }
 
   // Primeira resposta: um `out` depois de um `in` no chat move para "Em conversa".

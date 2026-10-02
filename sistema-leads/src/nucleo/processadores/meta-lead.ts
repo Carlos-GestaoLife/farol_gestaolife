@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Tx } from "@/db";
-import { atribuirOrigem } from "../atribuicao";
+import { atribuirOrigem, atualizarPrimeiroToque } from "../atribuicao";
 import { registrarDataContato } from "../contato";
 import { definirEstagioInicialSeVazio } from "../estagios";
 import { inserirEventoSeNaoExiste } from "../eventos";
@@ -28,7 +28,7 @@ export const payloadMetaLeadSchema = z.object({
 
 /** Cria o processador com um `fetch` injetável (testes usam um falso). */
 export function criarProcessadorMetaLead(fetchFn?: FetchFn): Processador {
-  return async (tx: Tx, entrada: EntradaBruta) => {
+  return async (tx: Tx, entrada: EntradaBruta, opcoes = {}) => {
     const validacao = payloadMetaLeadSchema.safeParse(entrada.payload);
     if (!validacao.success) {
       throw new Error(
@@ -72,24 +72,29 @@ export function criarProcessadorMetaLead(fetchFn?: FetchFn): Processador {
       metaCampaignId: ids.campaignId,
     });
 
-    await inserirEventoSeNaoExiste(tx, {
-      pessoaId,
-      tipo: "form_enviado",
-      ocorridoEm,
-      canal: "meta_form",
-      origemId,
-      entradaBrutaId: entrada.id,
-      dados: {
-        leadgen_id: p.leadgen_id,
-        form_id: ids.formId,
-        ad_id: ids.adId,
-        adset_id: ids.adsetId,
-        campaign_id: ids.campaignId,
-        page_id: p.page_id ?? null,
-        campos,
-        outros,
+    await inserirEventoSeNaoExiste(
+      tx,
+      {
+        pessoaId,
+        tipo: "form_enviado",
+        ocorridoEm,
+        canal: "meta_form",
+        origemId,
+        entradaBrutaId: entrada.id,
+        dados: {
+          leadgen_id: p.leadgen_id,
+          form_id: ids.formId,
+          ad_id: ids.adId,
+          adset_id: ids.adsetId,
+          campaign_id: ids.campaignId,
+          page_id: p.page_id ?? null,
+          campos,
+          outros,
+        },
       },
-    });
+      { permitirReatribuicao: opcoes.forcar === true },
+    );
+    if (origemId) await atualizarPrimeiroToque(tx, pessoaId);
 
     await registrarDataContato(tx, pessoaId, ocorridoEm);
   };

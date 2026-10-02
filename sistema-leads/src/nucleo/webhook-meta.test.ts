@@ -3,7 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { celularAleatorio, emailAleatorio, temBanco } from "./teste/banco";
 import { db } from "@/db";
-import { entradasBrutas, estagios, eventos, identificadores, pessoas } from "@/db/schema";
+import { entradasBrutas, estagios, eventos, identificadores, origens, pessoas } from "@/db/schema";
 import { GET, POST } from "@/app/api/webhooks/meta/route";
 import { processarEntrada, registrarProcessador } from "./entradas";
 import type { FetchFn } from "./meta";
@@ -116,6 +116,8 @@ describe.skipIf(!temBanco)("webhook da Meta (integração)", () => {
         .delete(entradasBrutas)
         .where(and(eq(entradasBrutas.fonte, "meta_lead"), inArray(entradasBrutas.chaveIdempotencia, leadgens)));
     }
+    // Origem automática criada pelo formulário não cadastrado dos testes.
+    await db.delete(origens).where(eq(origens.codigo, "formulario-nao-cadastrado-5001"));
   });
 
   async function entrada(leadgenId: string) {
@@ -198,7 +200,15 @@ describe.skipIf(!temBanco)("webhook da Meta (integração)", () => {
 
     const evs = await db.select().from(eventos).where(eq(eventos.pessoaId, dono.pessoaId));
     expect(evs).toHaveLength(1);
-    expect(evs[0]).toMatchObject({ tipo: "form_enviado", canal: "meta_form", origemId: null, entradaBrutaId: e.id });
+    // Formulário 5001 não cadastrado: origem automática "Formulário não cadastrado 5001".
+    const [auto] = await db.select().from(origens).where(eq(origens.codigo, "formulario-nao-cadastrado-5001"));
+    expect(auto).toMatchObject({
+      nome: "Formulário não cadastrado 5001",
+      tipo: "form_meta",
+      metaFormId: "5001",
+      criadaAutomaticamente: true,
+    });
+    expect(evs[0]).toMatchObject({ tipo: "form_enviado", canal: "meta_form", origemId: auto.id, entradaBrutaId: e.id });
     expect(evs[0].ocorridoEm.toISOString()).toBe("2026-09-30T12:00:00.000Z");
     expect(evs[0].dados).toMatchObject({
       leadgen_id: leadgen,

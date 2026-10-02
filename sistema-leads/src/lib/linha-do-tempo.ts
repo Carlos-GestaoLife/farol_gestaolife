@@ -186,6 +186,7 @@ export function descreverEvento(evento: EventoParaDescrever): DescricaoEvento {
             ? "Formulário da LP enviado"
             : "Formulário enviado";
       if (origem) detalhes.push(origem);
+      if (dados.reatribuicao === true) detalhes.push("Origem atribuída no reprocessamento");
       const cidade = texto(dados.cidade) ?? texto(objeto(dados.campos).cidade);
       if (cidade) detalhes.push(`Cidade: ${cidade}`);
       const campanha = texto(dados.utm_campaign);
@@ -196,6 +197,7 @@ export function descreverEvento(evento: EventoParaDescrever): DescricaoEvento {
       titulo = "Conversa iniciada no WhatsApp";
       if (evento.numeroMonitorado) detalhes.push(`Número: ${formatarTelefone(evento.numeroMonitorado)}`);
       if (origem) detalhes.push(origem);
+      if (dados.reatribuicao === true) detalhes.push("Origem atribuída no reprocessamento");
       textoAbertura = texto(dados.texto_abertura) ?? undefined;
       break;
     }

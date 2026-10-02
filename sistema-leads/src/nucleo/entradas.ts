@@ -3,7 +3,7 @@ import { and, asc, eq, inArray, lt, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { entradasBrutas, fonteEntrada } from "@/db/schema";
-import { obterProcessador, type EntradaBruta } from "./registro";
+import { obterProcessador, type EntradaBruta, type OpcoesProcessamento } from "./registro";
 // Registra todos os processadores (efeito colateral do import).
 import "./processadores";
 
@@ -11,7 +11,7 @@ import "./processadores";
 // Regra "nada se perde": a entrada é gravada crua ANTES de qualquer processamento.
 
 export { registrarProcessador, removerProcessador } from "./registro";
-export type { EntradaBruta, FonteEntrada, Processador } from "./registro";
+export type { EntradaBruta, FonteEntrada, OpcoesProcessamento, Processador } from "./registro";
 export { inserirEventoSeNaoExiste } from "./eventos";
 
 export const MAX_ENTRADAS_POR_CHAMADA = 100;
@@ -150,17 +150,26 @@ async function marcarErro(id: string, mensagem: string): Promise<void> {
 
 /**
  * Processa uma entrada com o processador da sua fonte, dentro de `db.transaction`.
- * - Já `processado` ou `ignorado`: retorna sem efeito.
+ * - Já `processado` ou `ignorado`: retorna sem efeito (a não ser com `forcar`).
  * - Sucesso: status `processado`, `processado_em` = agora, `erro` = null (na mesma transação).
  * - Sem processador ou exceção: transação desfeita; status `erro`, mensagem e tentativas + 1.
+ *   Num reprocessamento forçado que falha, a entrada que já estava `processado` continua assim.
+ *
+ * `forcar` (pedido explícito da gestão): reprocessa mesmo já processada. Os processadores são
+ * reexecutáveis, então nada duplica; um toque que ficou sem origem e agora casa com uma ganha
+ * um evento novo de reatribuição (ver `inserirEventoSeNaoExiste`).
  */
-export async function processarEntrada(id: string): Promise<ResultadoProcessamento> {
+export async function processarEntrada(
+  id: string,
+  opcoes: OpcoesProcessamento = {},
+): Promise<ResultadoProcessamento> {
+  const forcar = opcoes.forcar === true;
   const [entrada] = await db
     .select({ fonte: entradasBrutas.fonte, status: entradasBrutas.status })
     .from(entradasBrutas)
     .where(eq(entradasBrutas.id, id));
   if (!entrada) return { id, status: "nao_encontrada" };
-  if (STATUS_FINAIS.includes(entrada.status)) return { id, status: "sem_efeito" };
+  if (!forcar && STATUS_FINAIS.includes(entrada.status)) return { id, status: "sem_efeito" };
 
   const processador = obterProcessador(entrada.fonte);
   if (!processador) {
@@ -177,9 +186,9 @@ export async function processarEntrada(id: string): Promise<ResultadoProcessamen
         .from(entradasBrutas)
         .where(eq(entradasBrutas.id, id))
         .for("update");
-      if (!atual || STATUS_FINAIS.includes(atual.status)) return false;
+      if (!atual || (!forcar && STATUS_FINAIS.includes(atual.status))) return false;
 
-      await processador(tx, atual);
+      await processador(tx, atual, { forcar });
 
       await tx
         .update(entradasBrutas)
@@ -201,7 +210,12 @@ export async function processarEntrada(id: string): Promise<ResultadoProcessamen
  */
 export async function processarPendentes(
   opcoes: { limite?: number; maxTentativas?: number } = {},
-): Promise<{ total: number; processadas: number; erros: number; resultados: ResultadoProcessamento[] }> {
+): Promise<{
+  total: number;
+  processadas: number;
+  erros: number;
+  resultados: ResultadoProcessamento[];
+}> {
   const { limite = 50, maxTentativas = 10 } = opcoes;
   const pendentes = await db
     .select({ id: entradasBrutas.id })

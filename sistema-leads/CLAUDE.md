@@ -119,6 +119,15 @@ Formulário Meta: por `form_id` e `ad_id`. LP Framer: por UTMs e campo oculto `o
 Primeiro toque = primeiro evento com origem da pessoa. Último toque = último evento com origem antes da
 venda. O painel mostra os dois lado a lado. Todos os toques ficam gravados.
 
+Implementação (Etapa 8, `src/nucleo/atribuicao.ts`): `escolherOrigem` é pura e recebe só as origens ativas.
+Padrões de texto: o mais longo vence. Formulário Meta: anúncio vence formulário; form não cadastrado cria
+"Formulário não cadastrado {form_id}" (`form_meta`, automática). LP: campo `origem` igual ao código, senão UTMs
+(campo nulo na origem é coringa; precisa de source ou campaign). "Desconhecida" só no WhatsApp.
+`pessoas.origem_primeiro_toque_id` é cache (`atualizarPrimeiroToque`, `recalcularAtribuicao`); o último toque é
+calculado em `src/consultas/toques.ts`. A origem de um evento nunca muda: para reatribuir, reprocessar a
+entrada com `processarEntrada(id, { forcar: true })`, que grava um evento NOVO com `dados.reatribuicao = true`
+e `dados.evento_original_id` quando o toque original ficou sem origem.
+
 ## API de ingestão
 
 ### POST /api/ingest/whatsapp

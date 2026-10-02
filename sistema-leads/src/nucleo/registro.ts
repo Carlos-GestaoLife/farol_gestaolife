@@ -17,7 +17,20 @@ export type FonteEntrada = EntradaBruta["fonte"];
  * - identidade: `resolverPessoa` já é idempotente (identificadores com ON CONFLICT DO NOTHING
  *   e no máximo um item aberto por par na fila de revisão).
  */
-export type Processador = (tx: Tx, entrada: EntradaBruta) => Promise<void>;
+export type Processador = (
+  tx: Tx,
+  entrada: EntradaBruta,
+  opcoes?: OpcoesProcessamento,
+) => Promise<void>;
+
+export type OpcoesProcessamento = {
+  /**
+   * Reprocessamento forçado de uma entrada já processada (pedido explícito da gestão). Os
+   * processadores que gravam toques passam `permitirReatribuicao` para
+   * `inserirEventoSeNaoExiste`: um toque que ficou sem origem ganha um evento novo com a origem.
+   */
+  forcar?: boolean;
+};
 
 const processadores = new Map<FonteEntrada, Processador>();
 

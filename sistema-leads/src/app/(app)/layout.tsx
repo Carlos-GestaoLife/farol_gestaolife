@@ -10,6 +10,7 @@ import { exigirSessao } from "@/lib/sessao";
 export default async function LayoutApp({ children }: { children: React.ReactNode }) {
   const { user, papel } = await exigirSessao();
   const rotuloPapel = ROTULO_PAPEL[papel];
+  const inicial = (user.name?.trim()[0] ?? "?").toUpperCase();
 
   return (
     <div className="flex min-h-full flex-1 flex-col md:flex-row">
@@ -30,10 +31,19 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
           <MenuLateral papel={papel} />
         </div>
         <Separator />
-        <div className="grid gap-3 p-4">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{user.name}</p>
-            <p className="text-muted-foreground text-xs">{rotuloPapel}</p>
+        {/* Rodapé: avatar, nome e papel numa linha; o botão Sair embaixo, sem sobreposição. */}
+        <div className="grid gap-3 p-4" data-testid="rodape-menu">
+          <div className="flex min-w-0 items-center gap-3">
+            <span
+              aria-hidden
+              className="bg-sidebar-primary text-sidebar-primary-foreground flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+            >
+              {inicial}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{user.name}</p>
+              <p className="text-muted-foreground truncate text-xs">{rotuloPapel}</p>
+            </div>
           </div>
           <BotaoSair className="w-full" />
         </div>

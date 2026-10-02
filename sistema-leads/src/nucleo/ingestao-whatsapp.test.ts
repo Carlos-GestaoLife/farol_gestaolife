@@ -160,12 +160,19 @@ describe.skipIf(!temBanco)("ingestão do WhatsApp (integração)", () => {
       c.mensagens.every((m) => m.numeroMonitorado === numero && m.dispositivoId === dispositivo.id),
     ).toBe(true);
     expect(c.eventos).toHaveLength(1);
+    // Sem ctwa e sem padrão casado: "WhatsApp direto (desconhecida)", também no primeiro toque.
+    const [desconhecida] = await db.select().from(origens).where(eq(origens.codigo, "desconhecida"));
     expect(c.eventos[0]).toMatchObject({
       tipo: "conversa_iniciada",
       canal: "whatsapp",
-      origemId: null,
+      origemId: desconhecida.id,
       numeroMonitorado: numero,
     });
+    const [cache] = await db
+      .select({ origem: pessoas.origemPrimeiroToqueId })
+      .from(pessoas)
+      .where(eq(pessoas.id, p.id));
+    expect(cache.origem).toBe(desconhecida.id);
     expect(c.eventos[0].ocorridoEm.getTime()).toBe(t0.getTime());
     expect(c.eventos[0].dados).toMatchObject({
       chat_id: `${tel.semNono}@c.us`,

@@ -20,6 +20,7 @@ import {
   type ItemLinhaDoTempo,
 } from "@/consultas/linha-do-tempo";
 import { listarEstagios, listarUsuariosOpcoes } from "@/consultas/pessoas";
+import { primeiroEUltimoToque, type Toque } from "@/consultas/toques";
 import { formatarDataHora, formatarDia, formatarTelefone } from "@/lib/formatacao";
 import { exigirSessao } from "@/lib/sessao";
 import {
@@ -47,6 +48,17 @@ function Campo({ rotulo, children }: { rotulo: string; children: React.ReactNode
       <span className="text-sm leading-none font-medium">{rotulo}</span>
       <span className="text-muted-foreground text-sm">{children}</span>
     </div>
+  );
+}
+
+function DescricaoToque({ rotulo, toque }: { rotulo: string; toque: Toque | null }) {
+  return (
+    <p>
+      <span className="font-medium">{`${rotulo}: `}</span>
+      <span className="text-muted-foreground">
+        {toque ? `${toque.origem.nome} (${formatarDataHora(toque.ocorridoEm)})` : "sem origem"}
+      </span>
+    </p>
   );
 }
 
@@ -110,11 +122,12 @@ export default async function PaginaPessoa({ params }: { params: Promise<{ id: s
   if (resultado.tipo === "mesclada") redirect(`/pessoas/${resultado.sobreviventeId}`);
   const { pessoa } = resultado;
 
-  const [ids, linhaDoTempo, estagios, usuarios] = await Promise.all([
+  const [ids, linhaDoTempo, estagios, usuarios, toques] = await Promise.all([
     listarIdentificadores(id),
     carregarLinhaDoTempo(id),
     listarEstagios(),
     listarUsuariosOpcoes(),
+    primeiroEUltimoToque(id),
   ]);
   const telefone = ids.find((i) => i.tipo === "telefone")?.valor;
   const titulo = pessoa.nome || (telefone ? formatarTelefone(telefone) : null) || "Sem nome";
@@ -129,6 +142,10 @@ export default async function PaginaPessoa({ params }: { params: Promise<{ id: s
           <h1 className="text-2xl font-semibold tracking-tight">{titulo}</h1>
           {pessoa.estagioNome ? <Badge variant="secondary">{pessoa.estagioNome}</Badge> : null}
           {pessoa.optOut ? <Badge variant="destructive">Opt-out</Badge> : null}
+        </div>
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm" aria-label="Toques de origem">
+          <DescricaoToque rotulo="Primeiro toque" toque={toques.primeiro} />
+          <DescricaoToque rotulo="Último toque" toque={toques.ultimo} />
         </div>
         <nav className="flex flex-wrap gap-3 text-sm" aria-label="Seções">
           <a href="#dados" className="underline-offset-4 hover:underline">
@@ -167,7 +184,6 @@ export default async function PaginaPessoa({ params }: { params: Promise<{ id: s
               usuarios={usuarios}
             />
             <BotaoOptOut pessoaId={pessoa.id} optOut={pessoa.optOut} />
-            <Campo rotulo="Origem do primeiro toque">{pessoa.origemNome ?? "Desconhecida"}</Campo>
             <Campo rotulo="Primeiro contato">{formatarDataHora(pessoa.primeiroContatoEm)}</Campo>
             <Campo rotulo="Último contato">{formatarDataHora(pessoa.ultimoContatoEm)}</Campo>
             {pessoa.estagioTipo === "perdido" && pessoa.motivoPerda ? (

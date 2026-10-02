@@ -1,12 +1,12 @@
 import { z } from "zod";
 import type { Tx } from "@/db";
-import { atribuirOrigem } from "../atribuicao";
+import { atribuirOrigem, atualizarPrimeiroToque } from "../atribuicao";
 import { registrarDataContato } from "../contato";
 import { definirEstagioInicialSeVazio } from "../estagios";
 import { inserirEventoSeNaoExiste } from "../eventos";
 import { dataDoEnvio, extrairCamposFramer } from "../framer";
 import { montarIdentificadores, resolverPessoa } from "../identidade";
-import type { EntradaBruta } from "../registro";
+import type { EntradaBruta, OpcoesProcessamento } from "../registro";
 
 // Processador da fonte `framer`: um envio de formulário de LP (POST /api/webhooks/framer).
 // Reexecutável: identidade idempotente, evento com inserirEventoSeNaoExiste, estágio inicial
@@ -19,7 +19,11 @@ export const payloadFramerSchema = z.object({
   recebido_em: z.string().optional(),
 });
 
-export async function processarFramer(tx: Tx, entrada: EntradaBruta): Promise<void> {
+export async function processarFramer(
+  tx: Tx,
+  entrada: EntradaBruta,
+  opcoes: OpcoesProcessamento = {},
+): Promise<void> {
   const p = payloadFramerSchema.parse(entrada.payload);
   if (!p.interpretado) {
     const tipo = p.cabecalhos?.["content-type"] ?? "ausente";
@@ -64,28 +68,33 @@ export async function processarFramer(tx: Tx, entrada: EntradaBruta): Promise<vo
     fbclid: c.fbclid,
   });
 
-  await inserirEventoSeNaoExiste(tx, {
-    pessoaId,
-    tipo: "form_enviado",
-    ocorridoEm,
-    canal: "lp_form",
-    origemId,
-    entradaBrutaId: entrada.id,
-    dados: {
-      nome: c.nome,
-      telefone: c.telefone,
-      email: c.email,
-      cidade: c.cidade,
-      utm_source: c.utm_source,
-      utm_medium: c.utm_medium,
-      utm_campaign: c.utm_campaign,
-      utm_content: c.utm_content,
-      utm_term: c.utm_term,
-      origem: c.origem,
-      fbclid: c.fbclid,
-      outros: c.outros,
+  await inserirEventoSeNaoExiste(
+    tx,
+    {
+      pessoaId,
+      tipo: "form_enviado",
+      ocorridoEm,
+      canal: "lp_form",
+      origemId,
+      entradaBrutaId: entrada.id,
+      dados: {
+        nome: c.nome,
+        telefone: c.telefone,
+        email: c.email,
+        cidade: c.cidade,
+        utm_source: c.utm_source,
+        utm_medium: c.utm_medium,
+        utm_campaign: c.utm_campaign,
+        utm_content: c.utm_content,
+        utm_term: c.utm_term,
+        origem: c.origem,
+        fbclid: c.fbclid,
+        outros: c.outros,
+      },
     },
-  });
+    { permitirReatribuicao: opcoes.forcar === true },
+  );
+  if (origemId) await atualizarPrimeiroToque(tx, pessoaId);
 
   await registrarDataContato(tx, pessoaId, ocorridoEm);
 }
