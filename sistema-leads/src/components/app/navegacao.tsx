@@ -5,6 +5,7 @@ import {
   ChartColumn,
   House,
   Menu,
+  MonitorSmartphone,
   Signpost,
   SquareKanban,
   UserCog,
@@ -36,6 +37,7 @@ const ITENS: ItemMenu[] = [
   { href: "/painel", rotulo: "Painel", icone: ChartColumn },
   { href: "/saude", rotulo: "Saúde", icone: Activity },
   { href: "/usuarios", rotulo: "Usuários e números", icone: UserCog },
+  { href: "/dispositivos", rotulo: "Dispositivos", icone: MonitorSmartphone },
 ];
 
 // O menu só esconde o que o papel não acessa; quem bloqueia de verdade é o servidor

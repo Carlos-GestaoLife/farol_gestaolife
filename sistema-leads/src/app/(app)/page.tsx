@@ -33,8 +33,11 @@ export default async function PaginaInicial({
             internas.
           </p>
           <p>
-            Próximos passos: núcleo de ingestão, extensão do WhatsApp, webhooks das LPs e da Meta,
-            e as telas de Leads, Kanban e Painel.
+            Núcleo de ingestão (entradas idempotentes e resolução de identidade) e ingestão do
+            WhatsApp pelo piolho, com dispositivos, usuários e números monitorados.
+          </p>
+          <p>
+            Próximos passos: webhooks das LPs e da Meta e as telas de Leads, Kanban e Painel.
           </p>
         </CardContent>
       </Card>

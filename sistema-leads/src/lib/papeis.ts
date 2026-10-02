@@ -14,7 +14,13 @@ export const ROTULO_PAPEL: Record<Papel, string> = {
  * Prefixos de rota exclusivos da gestão. Tudo o que não está aqui (/, /kanban, /leads,
  * /pessoas...) é acessível a qualquer usuário com sessão.
  */
-export const PREFIXOS_SO_GESTAO = ["/origens", "/painel", "/saude", "/usuarios"] as const;
+export const PREFIXOS_SO_GESTAO = [
+  "/origens",
+  "/painel",
+  "/saude",
+  "/usuarios",
+  "/dispositivos",
+] as const;
 
 /** Converte um valor qualquer (vindo da sessão) em papel. Valor desconhecido vira `comercial`, o de menor acesso. */
 export function papelDe(valor: unknown): Papel {

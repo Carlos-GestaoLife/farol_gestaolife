@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { papelDe, podeAcessar } from "./papeis";
 
-const SO_GESTAO = ["/origens", "/painel", "/saude", "/usuarios"];
+const SO_GESTAO = ["/origens", "/painel", "/saude", "/usuarios", "/dispositivos"];
 const COMUNS = ["/", "/kanban", "/leads", "/pessoas"];
 
 describe("podeAcessar", () => {
@@ -15,6 +15,7 @@ describe("podeAcessar", () => {
     expect(podeAcessar("comercial", "/usuarios/novo")).toBe(false);
     expect(podeAcessar("comercial", "/painel?periodo=30d")).toBe(false);
     expect(podeAcessar("comercial", "/saude/")).toBe(false);
+    expect(podeAcessar("comercial", "/dispositivos?novo=1")).toBe(false);
   });
 
   it("gestão acessa tudo", () => {

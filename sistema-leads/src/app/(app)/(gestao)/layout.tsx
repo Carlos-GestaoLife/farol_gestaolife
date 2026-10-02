@@ -1,6 +1,6 @@
 import { exigirPapel } from "@/lib/sessao";
 
-// Telas exclusivas da gestão (Origens, Painel, Saúde, Usuários e números).
+// Telas exclusivas da gestão (Origens, Painel, Saúde, Usuários e números, Dispositivos).
 // Comercial que acessar qualquer uma delas volta para o início com ?erro=sem-permissao.
 //
 // Atenção: por causa da renderização parcial do Next, um layout não é reexecutado em toda
