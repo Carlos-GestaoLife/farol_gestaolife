@@ -36,9 +36,12 @@ export default async function PaginaInicial({
             Núcleo de ingestão (entradas idempotentes e resolução de identidade) e ingestão do
             WhatsApp pelo piolho, com dispositivos, usuários e números monitorados.
           </p>
+          <p>Webhooks das LPs (Framer) e dos formulários da Meta.</p>
           <p>
-            Próximos passos: webhooks das LPs e da Meta e as telas de Leads, Kanban e Painel.
+            Telas de Leads (busca, filtros e novo lead), Kanban (arrastar entre estágios) e
+            Pessoa (linha do tempo, notas, estágio e responsável).
           </p>
+          <p>Próximos passos: origens e atribuição, Painel e Saúde.</p>
         </CardContent>
       </Card>
     </div>

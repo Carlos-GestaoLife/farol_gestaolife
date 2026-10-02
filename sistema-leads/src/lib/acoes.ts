@@ -10,6 +10,8 @@ export type EstadoAcao = {
   valores?: Record<string, string>;
   /** Segredo mostrado uma única vez (token novo do dispositivo). */
   token?: string;
+  /** Link para o que acabou de ser criado (ex.: a ficha da pessoa). */
+  link?: string;
 };
 
 export const ESTADO_INICIAL: EstadoAcao = { ok: false, mensagem: null };

@@ -39,8 +39,11 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      <main className="flex-1 p-4 md:p-8">
-        <div className="mx-auto w-full max-w-5xl">{children}</div>
+      <main className="min-w-0 flex-1 p-4 md:p-8">
+        {/* Telas largas (Kanban, Leads) marcam o conteúdo com data-largura="total". */}
+        <div className="mx-auto w-full max-w-5xl has-[[data-largura=total]]:max-w-none">
+          {children}
+        </div>
       </main>
     </div>
   );

@@ -248,7 +248,7 @@ describe.skipIf(!temBanco)("entradas (integração)", () => {
     const notas = await db.select().from(eventos).where(eq(eventos.pessoaId, pessoaId));
     expect(notas).toHaveLength(2);
     expect(notas.every((n) => n.tipo === "nota" && n.canal === "manual")).toBe(true);
-    expect(notas.map((n) => (n.dados as { nota: string }).nota).sort()).toEqual([
+    expect(notas.map((n) => (n.dados as { texto: string }).texto).sort()).toEqual([
       "Primeiro contato",
       "Retornou",
     ]);
