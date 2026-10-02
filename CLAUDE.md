@@ -34,6 +34,14 @@ reprocessamento a cada 5 minutos (`POST /api/cron/reprocessar` com `Authorizatio
 e envia alertas (dispositivo sem sinal, entradas com erro). Ele NUNCA grava direto no banco: sempre
 chama a API do sistema. O cron da Vercel fica só como fallback.
 
+## Deploy e migrações
+
+Projeto Vercel `farol-sistema-leads`, com Root Directory `sistema-leads`. O comando de build na Vercel
+é `npm run build:vercel`: em produção ele aplica as migrações versionadas (`src/db/migrations`) e o seed
+idempotente antes do `next build`. Se a migração falhar, o deploy falha e a versão anterior continua no ar.
+Deploys de preview não tocam no banco. Migração nova: `npm run db:generate` local, commit do SQL gerado e
+push na main.
+
 ## Ordem de trabalho
 
 Primeiro o `sistema-leads/` até a Etapa 4 (ingestão do WhatsApp pronta e testada); depois o `piolho/`.

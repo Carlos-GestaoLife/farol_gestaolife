@@ -12,7 +12,16 @@ import * as schema from "./schema";
 export function criarClienteNode() {
   // Lê .env.local; variáveis já definidas no ambiente têm prioridade.
   config({ path: ".env.local", quiet: true });
-  const { DATABASE_URL } = parseEnv(process.env);
+
+  // Migração e seed preferem a conexão direta, sem pooler. No Neon o pooler (PgBouncer em
+  // modo transação) não é indicado para DDL nem para a transação longa da migração; por isso
+  // a integração Neon da Vercel cria também DATABASE_URL_UNPOOLED. Se ela não existir (ou
+  // estiver vazia), usamos DATABASE_URL. A URL escolhida passa pela mesma validação de
+  // formato (postgres:// ou postgresql://) do `parseEnv`.
+  const semPooler = process.env.DATABASE_URL_UNPOOLED;
+  const urlEscolhida = semPooler ? semPooler : process.env.DATABASE_URL;
+  const { DATABASE_URL } = parseEnv({ ...process.env, DATABASE_URL: urlEscolhida });
+
   const pool = new Pool({ connectionString: DATABASE_URL, max: 1 });
   const db = drizzle({ client: pool, schema });
   return { db, pool };
