@@ -1,6 +1,8 @@
 // Comando de build do projeto na Vercel (npm run build:vercel).
-// Em produção aplica as migrações versionadas e o seed idempotente antes do next build.
-// Se a migração ou o seed falhar, o build falha e a versão anterior continua no ar.
+// Em produção aplica as migrações versionadas, o seed idempotente e a criação do primeiro
+// usuário gestao (idempotente; sem as variáveis PRIMEIRO_GESTAO_* só loga e segue) antes do
+// next build.
+// Se a migração, o seed ou a criação do usuário falhar, o build falha e a versão anterior continua no ar.
 // Em preview e localmente o banco não é tocado.
 import { spawnSync } from "node:child_process";
 
@@ -20,9 +22,10 @@ function rodar(comando, args) {
 const ambiente = process.env.VERCEL_ENV;
 
 if (ambiente === "production") {
-  console.log("Ambiente production: aplicando migrações e seed antes do build.");
+  console.log("Ambiente production: aplicando migrações, seed e primeiro usuário antes do build.");
   rodar("npm", ["run", "db:migrate"]);
   rodar("npm", ["run", "db:seed"]);
+  rodar("npm", ["run", "db:criar-gestao"]);
 } else {
   console.log(`Ambiente ${ambiente ?? "local"}: migração e seed pulados (só em produção).`);
 }

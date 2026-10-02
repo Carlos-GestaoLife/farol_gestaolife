@@ -1,5 +1,7 @@
 import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
+import { drizzle as drizzleNeon } from "drizzle-orm/neon-http";
+import { drizzle as drizzleNodePg } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import { getEnv } from "@/lib/env";
 import * as schema from "./schema";
 
@@ -9,12 +11,34 @@ import * as schema from "./schema";
 //   const pool = new Pool({ connectionString: getEnv().DATABASE_URL });
 //   return drizzle({ client: pool, schema });
 
-function criarDb() {
-  const sql = neon(getEnv().DATABASE_URL);
-  return drizzle({ client: sql, schema });
+function criarDbNeon(url: string) {
+  return drizzleNeon({ client: neon(url), schema });
 }
 
-export type Db = ReturnType<typeof criarDb>;
+export type Db = ReturnType<typeof criarDbNeon>;
+
+/** Postgres local de desenvolvimento (localhost), que não fala o protocolo HTTP do Neon. */
+function ehBancoLocal(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+function criarDb(): Db {
+  const url = getEnv().DATABASE_URL;
+  if (ehBancoLocal(url)) {
+    // Só em desenvolvimento local: o driver neon-http precisa de um endpoint HTTP do Neon,
+    // então para um Postgres em localhost usamos o node-postgres. A API de consultas do
+    // Drizzle é a mesma; o tipo exposto continua o do neon-http (sem transações interativas),
+    // para que nenhum código da aplicação dependa de algo que não funcione na Vercel.
+    const pool = new Pool({ connectionString: url, max: 5 });
+    return drizzleNodePg({ client: pool, schema }) as unknown as Db;
+  }
+  return criarDbNeon(url);
+}
 
 let instancia: Db | undefined;
 
