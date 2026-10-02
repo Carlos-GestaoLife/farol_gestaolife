@@ -32,7 +32,9 @@ Textos de UI, comentários e documentação em português do Brasil, sem o carac
 O n8n é o orquestrador externo: recebe webhooks de terceiros quando for conveniente, dispara o
 reprocessamento a cada 5 minutos (`POST /api/cron/reprocessar` com `Authorization: Bearer {CRON_SECRET}`)
 e envia alertas (dispositivo sem sinal, entradas com erro). Ele NUNCA grava direto no banco: sempre
-chama a API do sistema. O cron da Vercel fica só como fallback.
+chama a API do sistema. O cron da Vercel fica só como fallback: `sistema-leads/vercel.json` agenda a mesma
+rota uma vez por dia (06:00 UTC), e só funciona se `CRON_SECRET` existir no projeto da Vercel. Exemplo
+de chamada para o n8n na seção "Reprocessamento" de `sistema-leads/docs/WEBHOOKS.md`.
 
 ## Deploy e migrações
 

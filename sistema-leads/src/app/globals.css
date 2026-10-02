@@ -66,6 +66,8 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  /* Gráficos do Painel: uma série, azul validado (contraste >= 3:1 na superfície clara). */
+  --grafico-serie: #2a78d6;
 }
 
 .dark {
@@ -95,6 +97,8 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  /* Mesmo azul, um passo ajustado para a superfície escura. */
+  --grafico-serie: #3987e5;
 }
 
 @layer base {

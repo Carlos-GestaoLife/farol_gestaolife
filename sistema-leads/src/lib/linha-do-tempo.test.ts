@@ -163,6 +163,12 @@ describe("descreverEvento", () => {
     expect(descreverEvento({ tipo: "reuniao_agendada", canal: null, dados: {} }).titulo).toBe("Reunião agendada");
     expect(descreverEvento({ tipo: "identidade_mesclada", canal: "manual", dados: {} }).titulo).toBe(
       "Identidade mesclada",
-    );
+    );    expect(
+      descreverEvento({
+        tipo: "identidade_mesclada",
+        canal: "manual",
+        dados: { absorvida_nome: "Maria", identificadores_movidos: 2, eventos_movidos: 3, mensagens_movidas: 4 },
+      }).detalhes,
+    ).toEqual(["Absorveu a pessoa Maria", "Movidos: 2 identificadores, 3 eventos, 4 mensagens"]);
   });
 });

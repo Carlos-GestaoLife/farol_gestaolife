@@ -26,7 +26,10 @@ export const envSchema = z.object({
   META_PAGE_ACCESS_TOKEN: z.string().min(1).optional(),
   // Segredo do webhook do Framer, enviado na query string (?k=).
   FRAMER_WEBHOOK_SECRET: z.string().min(1).optional(),
-  // Obrigatória a partir da Etapa 10 (reprocessamento).
+  // Reprocessamento (Etapa 10): protege /api/cron/reprocessar (header Authorization: Bearer).
+  // Usado pelo n8n (a cada 5 min) e pelo cron diário da Vercel (vercel.json), que manda o header
+  // sozinho quando a variável existe no projeto. Sem ela a rota responde 503. Lida direto de
+  // process.env em src/lib/segredos.ts. Gere com: openssl rand -hex 32.
   CRON_SECRET: z.string().min(1).optional(),
   // Obrigatória a partir da Fase 2 (webhook da Hotmart).
   HOTMART_HOTTOK: z.string().min(1).optional(),

@@ -233,9 +233,16 @@ export function descreverEvento(evento: EventoParaDescrever): DescricaoEvento {
       if (valor) detalhes.push(`Valor: ${valor}`);
       break;
     }
-    case "identidade_mesclada":
+    case "identidade_mesclada": {
       titulo = "Identidade mesclada";
+      const absorvida = texto(dados.absorvida_nome);
+      detalhes.push(absorvida ? `Absorveu a pessoa ${absorvida}` : "Absorveu outra pessoa");
+      const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+      detalhes.push(
+        `Movidos: ${n(dados.identificadores_movidos)} identificadores, ${n(dados.eventos_movidos)} eventos, ${n(dados.mensagens_movidas)} mensagens`,
+      );
       break;
+    }
     case "nota": {
       // `texto` é o formato atual; `nota` é o das entradas manuais antigas.
       const nota = texto(dados.texto) ?? texto(dados.nota);

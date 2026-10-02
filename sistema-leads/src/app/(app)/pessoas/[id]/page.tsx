@@ -25,6 +25,7 @@ import { formatarDataHora, formatarDia, formatarTelefone } from "@/lib/formataca
 import { exigirSessao } from "@/lib/sessao";
 import {
   BotaoOptOut,
+  FormularioMescla,
   FormularioNome,
   FormularioNota,
   SeletorEstagio,
@@ -113,7 +114,7 @@ function ItemTempo({ item }: { item: ItemLinhaDoTempo }) {
 }
 
 export default async function PaginaPessoa({ params }: { params: Promise<{ id: string }> }) {
-  await exigirSessao();
+  const sessao = await exigirSessao();
   const { id } = await params;
   if (!UUID.test(id)) notFound();
 
@@ -157,6 +158,11 @@ export default async function PaginaPessoa({ params }: { params: Promise<{ id: s
           <a href="#identificadores" className="underline-offset-4 hover:underline">
             Identificadores
           </a>
+          {sessao.papel === "gestao" ? (
+            <a href="#mesclar" className="underline-offset-4 hover:underline">
+              Mesclar
+            </a>
+          ) : null}
         </nav>
       </div>
 
@@ -256,6 +262,22 @@ export default async function PaginaPessoa({ params }: { params: Promise<{ id: s
           )}
         </CardContent>
       </Card>
+
+      {sessao.papel === "gestao" ? (
+        <Card id="mesclar">
+          <CardHeader>
+            <CardTitle>Mesclar com outra pessoa</CardTitle>
+            <CardDescription>
+              Use quando a mesma pessoa foi cadastrada duas vezes. Identificadores, eventos e
+              mensagens da absorvida passam para a que fica; nada é apagado e a linha do tempo
+              registra a mescla.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FormularioMescla pessoaId={pessoa.id} />
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

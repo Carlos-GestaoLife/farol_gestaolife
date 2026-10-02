@@ -188,3 +188,32 @@ curl -i "https://farol-sistema-leads.vercel.app/api/webhooks/meta?hub.mode=subsc
 O POST simulado responde 200 e grava a entrada, mas o processamento vai para `erro` (o lead `123`
 não existe na Graph API). Apague a entrada de teste depois:
 `delete from entradas_brutas where fonte = 'meta_lead' and chave_idempotencia = '123';`
+
+## Reprocessamento (Etapa 10)
+
+Entradas com status `pendente` ou `erro` e menos de 10 tentativas são processadas de novo por
+`GET` ou `POST /api/cron/reprocessar` (até 100 por chamada, das mais antigas para as mais novas).
+A rota exige o header `Authorization: Bearer {CRON_SECRET}`: sem a variável responde 503, com segredo
+errado 401. Resposta 200: `{ "ok": true, "total", "processadas", "erros", "duracao_ms" }`.
+
+| Quem chama | Quando | Como |
+| --- | --- | --- |
+| n8n | a cada 5 minutos | `POST` com o header (exemplo abaixo) |
+| Vercel Cron | uma vez por dia, 06:00 UTC (03:00 de Brasília), fallback | `GET`, definido em `vercel.json`; a Vercel manda o header sozinha quando `CRON_SECRET` existe no projeto |
+| Gestão | quando quiser | botão "Reprocessar pendentes e erros" na tela Saúde |
+
+Configurar:
+
+1. Gere o segredo (`openssl rand -hex 32`) e grave em `CRON_SECRET` na Vercel (Production). Redeploy.
+2. No n8n, crie um fluxo com o nó **Schedule Trigger** (a cada 5 minutos) ligado a um **HTTP Request**
+   (`POST`, header `Authorization` = `Bearer` + o segredo). O equivalente em curl:
+
+   ```bash
+   curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://farol-sistema-leads.vercel.app/api/cron/reprocessar
+   ```
+
+3. Para alertar entradas com erro, o mesmo fluxo pode olhar o campo `erros` da resposta.
+
+Entradas que chegam a 10 tentativas saem do reprocessamento automático. Na tela Saúde dá para
+reprocessar uma a uma, ignorar (status `ignorado`, a mensagem de erro fica guardada) ou buscar pela
+chave e fazer o reprocessamento forçado de uma entrada já processada (reatribuição de origem).

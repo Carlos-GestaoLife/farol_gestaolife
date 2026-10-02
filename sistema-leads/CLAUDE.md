@@ -106,6 +106,11 @@ Para cada entrada, montar a lista de identificadores normalizados e buscar as pe
 Mescla só pela tela (papel `gestao`): move identificadores, eventos e mensagens para a sobrevivente,
 marca a outra com `mesclada_para_id` e grava evento `identidade_mesclada`. Nada é apagado.
 
+Implementação (Etapa 9, `src/nucleo/mescla.ts`): `mesclarPessoas(tx, ...)` move também vendas e os itens
+abertos da fila de revisão; na sobrevivente fica o estágio de maior ordem (ganho vence; perdido só se as
+duas forem perdidas), opt-out = OU, datas mínima e máxima e o primeiro toque recalculado. Pela tela Saúde
+(fila de revisão) ou pela ficha da pessoa ("Mesclar com outra pessoa", id, telefone ou e-mail).
+
 ## Atribuição de origem
 
 WhatsApp, nesta ordem:
@@ -183,6 +188,8 @@ onde o Gestão PRO é pago (a definir).
 ### Reprocessamento
 `/api/cron/reprocessar` protegido por `CRON_SECRET`: reprocessa `pendente` e `erro` com `tentativas < 10`.
 Também um botão na tela Saúde. Atenção: no plano Hobby da Vercel o cron só roda uma vez por dia.
+Implementação (Etapa 10): `src/nucleo/reprocessamento.ts` (GET e POST, até 100 por chamada, 503 sem
+`CRON_SECRET`, 401 com segredo errado), cron diário em `vercel.json` e chamada do n8n em `docs/WEBHOOKS.md`.
 
 ## Telas
 

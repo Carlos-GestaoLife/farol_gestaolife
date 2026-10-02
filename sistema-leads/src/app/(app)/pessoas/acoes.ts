@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import "@/lib/zod-ptbr";
 import { camposDoFormulario, primeiroErro, type EstadoAcao } from "@/lib/acoes";
-import { exigirSessao } from "@/lib/sessao";
+import { exigirPapel, exigirSessao } from "@/lib/sessao";
+import { encontrarPessoaPorReferencia, executarMescla } from "@/nucleo/mescla";
 import {
   MAX_MOTIVO_PERDA,
   MAX_NOME,
@@ -135,4 +136,45 @@ export async function alterarNome(_estado: EstadoAcao, formData: FormData): Prom
   });
   if (resultado.ok) revalidar(r.data.pessoaId);
   return resposta(resultado, "Nome salvo.", "Nada mudou.");
+}
+
+const mesclaManualSchema = z.object({
+  pessoaId: idSchema,
+  referencia: z
+    .string({ error: "Informe o id, o telefone ou o e-mail da outra pessoa" })
+    .trim()
+    .min(1, "Informe o id, o telefone ou o e-mail da outra pessoa")
+    .max(200, "Referência longa demais"),
+  fica: z.enum(["esta", "outra"], { error: "Escolha quem fica" }),
+});
+
+/**
+ * Mescla manual (só gestão), fora da fila de revisão: a outra pessoa é encontrada pelo id,
+ * telefone ou e-mail. `fica` diz qual das duas sobrevive.
+ */
+export async function mesclarComOutraPessoa(
+  _estado: EstadoAcao,
+  formData: FormData,
+): Promise<EstadoAcao> {
+  const sessao = await exigirPapel("gestao");
+  const campos = camposDoFormulario(formData);
+  const valores = { referencia: campos.referencia ?? "", fica: campos.fica ?? "esta" };
+  const r = mesclaManualSchema.safeParse(campos);
+  if (!r.success) return { ok: false, mensagem: primeiroErro(r.error), valores };
+
+  const outra = await encontrarPessoaPorReferencia(r.data.referencia);
+  if (!outra) return { ok: false, mensagem: "Nenhuma pessoa encontrada com esse id, telefone ou e-mail", valores };
+  if (outra === r.data.pessoaId) {
+    return { ok: false, mensagem: "Essa referência é desta mesma pessoa", valores };
+  }
+
+  const [sobreviventeId, absorvidaId] =
+    r.data.fica === "esta" ? [r.data.pessoaId, outra] : [outra, r.data.pessoaId];
+  const resultado = await executarMescla({ sobreviventeId, absorvidaId, usuarioId: sessao.user.id });
+  if (resultado.ok) {
+    revalidar(sobreviventeId);
+    revalidar(absorvidaId);
+    revalidatePath("/saude");
+  }
+  return { ...resultado, valores: resultado.ok ? undefined : valores };
 }

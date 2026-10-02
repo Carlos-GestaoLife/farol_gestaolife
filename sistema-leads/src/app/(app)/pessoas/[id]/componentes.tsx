@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState, useTransition } from "react";
 import { DialogoMotivoPerda } from "@/components/app/dialogo-motivo-perda";
 import { MensagemAcao } from "@/components/app/mensagem-acao";
@@ -14,6 +15,7 @@ import {
   alterarNome,
   alterarOptOut,
   alterarResponsavel,
+  mesclarComOutraPessoa,
   moverEstagio,
 } from "../acoes";
 
@@ -201,6 +203,64 @@ export function FormularioNota({ pessoaId }: { pessoaId: string }) {
           {pendente ? "Salvando..." : "Adicionar nota"}
         </Button>
         <MensagemAcao estado={estado} />
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Mescla manual com outra pessoa (só gestão): id, telefone ou e-mail da outra e quem fica.
+ * Pede confirmação antes; depois de mesclar, mostra o link para a sobrevivente.
+ */
+export function FormularioMescla({ pessoaId }: { pessoaId: string }) {
+  const [estado, acao, pendente] = useActionState(mesclarComOutraPessoa, ESTADO_INICIAL);
+  const fica = estado.valores?.fica ?? "esta";
+
+  function confirmar(evento: React.FormEvent<HTMLFormElement>) {
+    const dados = new FormData(evento.currentTarget);
+    const quem = dados.get("fica") === "outra" ? "a OUTRA pessoa fica e esta" : "ESTA pessoa fica e a outra";
+    const ok = window.confirm(
+      `Mesclar? ${quem} é absorvida: identificadores, eventos e mensagens passam para a que fica. Nada é apagado, mas a mescla não se desfaz pela tela.`,
+    );
+    if (!ok) evento.preventDefault();
+  }
+
+  return (
+    <form action={acao} onSubmit={confirmar} className="grid gap-3">
+      <input type="hidden" name="pessoaId" value={pessoaId} />
+      <div className="grid gap-2">
+        <Label htmlFor="mescla-referencia">Outra pessoa (id, telefone ou e-mail)</Label>
+        <Input
+          id="mescla-referencia"
+          name="referencia"
+          required
+          maxLength={200}
+          defaultValue={estado.ok ? "" : estado.valores?.referencia}
+          placeholder="Ex.: 62 99999-9999 ou maria@exemplo.com"
+          className="max-w-md"
+        />
+      </div>
+      <fieldset className="grid gap-1 text-sm" key={fica}>
+        <legend className="mb-1 font-medium">Quem fica</legend>
+        <label className="flex items-center gap-2">
+          <input type="radio" name="fica" value="esta" defaultChecked={fica === "esta"} />
+          Esta pessoa (a outra é absorvida)
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="radio" name="fica" value="outra" defaultChecked={fica === "outra"} />
+          A outra pessoa (esta é absorvida)
+        </label>
+      </fieldset>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="submit" variant="outline" disabled={pendente}>
+          {pendente ? "Mesclando..." : "Mesclar com outra pessoa"}
+        </Button>
+        <MensagemAcao estado={estado} />
+        {estado.ok && estado.link ? (
+          <Link href={estado.link} className="text-sm underline underline-offset-4">
+            Abrir a pessoa que ficou
+          </Link>
+        ) : null}
       </div>
     </form>
   );
