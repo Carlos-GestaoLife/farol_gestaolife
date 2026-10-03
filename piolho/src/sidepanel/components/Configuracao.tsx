@@ -1,0 +1,174 @@
+// Seção "Configuração": URL do sistema e token do dispositivo, salvos em chrome.storage.local.
+// O token nunca volta para a tela depois de salvo: o painel só mostra se está configurado.
+// Etapa 1: só salva. TODO Etapa 2: avisar o service worker (mensagem `config`) e mandar o heartbeat.
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { URL_SISTEMA_PADRAO, normalizarUrlSistema, padraoDeHost } from "../../shared/config";
+import {
+  lerUrlSistema,
+  removerToken,
+  salvarToken,
+  salvarUrlSistema,
+  tokenConfigurado,
+} from "../../shared/armazenamento";
+
+type Retorno = { tom: "ok" | "erro"; texto: string } | null;
+
+export function Configuracao() {
+  const [urlSalva, setUrlSalva] = useState<string | null>(null);
+  const [urlDigitada, setUrlDigitada] = useState("");
+  const [tokenOk, setTokenOk] = useState(false);
+  const [tokenDigitado, setTokenDigitado] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [retorno, setRetorno] = useState<Retorno>(null);
+
+  useEffect(() => {
+    let ativo = true;
+    void Promise.all([lerUrlSistema(), tokenConfigurado()]).then(([url, temToken]) => {
+      if (!ativo) return;
+      setUrlSalva(url);
+      setUrlDigitada(url);
+      setTokenOk(temToken);
+    });
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
+  const salvar = useCallback(
+    async (evento: FormEvent<HTMLFormElement>) => {
+      evento.preventDefault();
+      setRetorno(null);
+      const url = normalizarUrlSistema(urlDigitada);
+      if (url === null) {
+        setRetorno({
+          tom: "erro",
+          texto: "URL inválida. Use https:// (ou http://localhost para desenvolvimento).",
+        });
+        return;
+      }
+      setSalvando(true);
+      try {
+        // URL diferente da padrão: pedir permissão de host em tempo de execução
+        // (optional_host_permissions). Precisa ser a primeira chamada assíncrona do clique, para
+        // o Chrome reconhecer o gesto do usuário.
+        if (url !== URL_SISTEMA_PADRAO) {
+          const padrao = padraoDeHost(url);
+          const concedida = padrao !== null && (await chrome.permissions.request({ origins: [padrao] }));
+          if (!concedida) {
+            setRetorno({
+              tom: "erro",
+              texto: "Sem a permissão de acesso a esse endereço, a extensão não consegue falar com o sistema.",
+            });
+            return;
+          }
+        }
+        await salvarUrlSistema(url);
+        setUrlSalva(url);
+        setUrlDigitada(url);
+        const tokenNovo = tokenDigitado.trim();
+        if (tokenNovo) {
+          await salvarToken(tokenNovo);
+          setTokenDigitado("");
+          setTokenOk(true);
+        }
+        setRetorno({ tom: "ok", texto: "Configuração salva." });
+      } catch (erro) {
+        const detalhe = erro instanceof Error ? erro.message : String(erro);
+        setRetorno({ tom: "erro", texto: `Não consegui salvar: ${detalhe}` });
+      } finally {
+        setSalvando(false);
+      }
+    },
+    [urlDigitada, tokenDigitado],
+  );
+
+  const remover = useCallback(async () => {
+    if (!window.confirm("Remover o token deste computador? A extensão para de enviar até receber outro.")) return;
+    setRetorno(null);
+    try {
+      await removerToken();
+      setTokenOk(false);
+      setRetorno({ tom: "ok", texto: "Token removido." });
+    } catch (erro) {
+      const detalhe = erro instanceof Error ? erro.message : String(erro);
+      setRetorno({ tom: "erro", texto: `Não consegui remover o token: ${detalhe}` });
+    }
+  }, []);
+
+  const carregando = urlSalva === null;
+
+  return (
+    <section className="secao" aria-labelledby="titulo-configuracao" data-testid="configuracao">
+      <h2 className="secao__titulo" id="titulo-configuracao">
+        Configuração
+      </h2>
+      <p className="secao__apoio">
+        Feita uma vez por computador. O número do WhatsApp é detectado sozinho.
+      </p>
+      <form className="formulario" onSubmit={(e) => void salvar(e)}>
+        <label className="campo">
+          <span className="campo__rotulo">URL do sistema</span>
+          <input
+            className="campo__entrada"
+            type="url"
+            inputMode="url"
+            autoComplete="off"
+            spellCheck={false}
+            value={urlDigitada}
+            onChange={(e) => setUrlDigitada(e.target.value)}
+            placeholder={URL_SISTEMA_PADRAO}
+            disabled={carregando}
+            data-testid="campo-url"
+          />
+          {(normalizarUrlSistema(urlDigitada) ?? urlDigitada.trim()) !== URL_SISTEMA_PADRAO ? (
+            <span className="campo__linha">
+              <span className="campo__dica">Endereço diferente do padrão: o Chrome vai pedir permissão.</span>
+              <button
+                type="button"
+                className="botao botao--secundario"
+                onClick={() => setUrlDigitada(URL_SISTEMA_PADRAO)}
+              >
+                Usar o padrão
+              </button>
+            </span>
+          ) : null}
+        </label>
+        <label className="campo">
+          <span className="campo__linha">
+            <span className="campo__rotulo">Token do dispositivo</span>
+            <span className={`selo ${tokenOk ? "selo--ok" : "selo--neutro"}`} data-testid="selo-token">
+              {tokenOk ? "Configurado" : "Não configurado"}
+            </span>
+          </span>
+          <input
+            className="campo__entrada"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={tokenDigitado}
+            onChange={(e) => setTokenDigitado(e.target.value)}
+            placeholder={tokenOk ? "Cole um token novo só para trocar" : "Cole o token aqui"}
+            disabled={carregando}
+            data-testid="campo-token"
+          />
+          <span className="campo__dica">O token é gerado na tela Dispositivos do Sistema de Leads.</span>
+        </label>
+        {retorno ? (
+          <p className={`retorno retorno--${retorno.tom}`} role={retorno.tom === "erro" ? "alert" : "status"}>
+            {retorno.texto}
+          </p>
+        ) : null}
+        <div className="secao__acoes">
+          <button type="submit" className="botao botao--primario" disabled={carregando || salvando}>
+            {salvando ? "Salvando..." : "Salvar"}
+          </button>
+          {tokenOk ? (
+            <button type="button" className="botao botao--limpar" onClick={() => void remover()}>
+              Remover token
+            </button>
+          ) : null}
+        </div>
+      </form>
+    </section>
+  );
+}

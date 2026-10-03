@@ -1,0 +1,96 @@
+:root {
+  /* Fontes: troque aqui se embutir outras */
+  --fonte-titulo: 'Gibson', 'Sora', 'Segoe UI', system-ui, sans-serif;
+  --fonte-ui: 'Sora', 'Segoe UI', system-ui, sans-serif;
+  --fonte-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Marca */
+  --cor-ink: #060608;
+  --cor-ink-2: #141420;
+  --cor-blue: #0004FF;
+  --cor-blue-hover: #0003C8;
+  --cor-blue-press: #00029A;
+  --cor-blue-suave: #EEF0FF;
+  --cor-blue-suave-2: #D0D3FF;
+  --cor-cyan: #A0E3FF;
+  --cor-cyan-suave: #EAF8FF;
+
+  /* Neutros frios */
+  --cor-fundo: #F4F5F8;
+  --cor-superficie: #FFFFFF;
+  --cor-superficie-hover: #F7F8FA;
+  --cor-borda: #E3E5EB;
+  --cor-borda-forte: #C9CCD6;
+  --cor-divisor: #EDEEF2;
+  --cor-texto: #141420;
+  --cor-texto-2: #4A4A55;
+  --cor-texto-3: #6B6B78;
+  --cor-texto-invertido: #FFFFFF;
+  --cor-texto-invertido-2: #B4B4BE;
+  --cor-desabilitado-fundo: #F1F2F5;
+  --cor-desabilitado-texto: #8A8A96;
+
+  /* Semânticas */
+  --cor-ok: #19C37D;
+  --cor-ok-fundo: #E7F6EE;
+  --cor-ok-borda: #CFEBDC;
+  --cor-ok-texto: #0B6B42;
+  --cor-aviso: #F5B000;
+  --cor-aviso-fundo: #FFF6DB;
+  --cor-aviso-borda: #F5E2A8;
+  --cor-aviso-texto: #7A4E00;
+  --cor-erro: #E5484D;
+  --cor-erro-fundo: #FFEEEC;
+  --cor-erro-borda: #F6CFCB;
+  --cor-erro-texto: #B42318;
+  --cor-neutro-fundo: #EEF0F3;
+  --cor-neutro-texto: #3A3A44;
+
+  /* Tipografia */
+  --fs-titulo: 20px;
+  --fs-numero: 24px;
+  --fs-corpo: 14px;
+  --fs-ui: 13px;
+  --fs-meta: 12px;
+  --fs-selo: 11.5px;
+  --peso-regular: 400;
+  --peso-medio: 500;
+  --peso-semi: 600;
+  --peso-bold: 700;
+  --lh-justo: 1.3;
+  --lh-corpo: 1.5;
+  --tracking-botao: 0.08em;
+
+  /* Espaçamento (base 4px) */
+  --esp-1: 4px;
+  --esp-2: 8px;
+  --esp-3: 12px;
+  --esp-4: 16px;
+  --esp-5: 20px;
+  --esp-6: 24px;
+  --esp-8: 32px;
+
+  /* Alturas de controle */
+  --altura-botao: 32px;
+  --altura-botao-lg: 44px;
+  --altura-input: 40px;
+
+  /* Raios */
+  --raio-xs: 4px;
+  --raio-sm: 8px;
+  --raio-md: 12px;
+  --raio-pill: 999px;
+
+  /* Sombras e foco */
+  --sombra-sm: 0 1px 2px rgba(6, 6, 8, 0.06);
+  --sombra-md: 0 6px 18px rgba(6, 6, 8, 0.08);
+  --sombra-rodape: 0 -6px 16px rgba(6, 6, 8, 0.05);
+  --anel-foco: 0 0 0 2px #FFFFFF, 0 0 0 4px var(--cor-blue),
+               0 0 0 7px rgba(160, 227, 255, 0.9);
+  --anel-foco-input: 0 0 0 3px rgba(160, 227, 255, 0.9);
+
+  /* Movimento */
+  --dur-rapida: 120ms;
+  --dur-base: 220ms;
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+}

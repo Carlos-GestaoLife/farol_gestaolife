@@ -9,7 +9,7 @@ Sistema de Leads. O contrato da API está no `CLAUDE.md` do Sistema de Leads (se
 Mesmo setup da extensão de exportar grupos: wa-js vendorizado no MAIN world, ponte validada com o
 content script, service worker, side panel em React.
 
-CAMINHO: `<<PREENCHER com o caminho local da extensão de exportar grupos>>`
+CAMINHO: repositório `https://github.com/Carlos-GestaoLife/extrator_contatos` (nesta sessão clonado em `/home/user/extrator_contatos`)
 
 Antes da etapa 1, ler esse repositório e replicar: config do Vite, geração do manifest, build do MAIN
 world, a ponte e os scripts do `package.json`. Reaproveitar a lógica best-effort de resolução de `@lid`.
