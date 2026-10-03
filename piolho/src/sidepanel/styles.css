@@ -488,3 +488,39 @@ label {
     transition: none;
   }
 }
+
+/* Seção "Envio ao sistema" */
+.dados {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.dado {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--fs-ui);
+}
+
+.dado__rotulo {
+  color: var(--cor-texto-3);
+}
+
+.dado__valor {
+  margin: 0;
+  color: var(--cor-texto);
+  font-weight: var(--peso-medio);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.aviso-erro {
+  padding: 10px 12px;
+  border: 1px solid var(--cor-erro-borda);
+  border-radius: var(--raio-sm);
+  background: var(--cor-erro-fundo);
+  color: var(--cor-erro-texto);
+  font-size: var(--fs-ui);
+  line-height: 1.45;
+}

@@ -9,6 +9,7 @@
 //   WhatsApp pode variar. Antes de usar uma API nova, confirmar na versão vendorizada.
 import { LIMITES, mensagemDeErro, type EstadoWhatsapp, type ItemMensagem } from "../shared/protocol";
 import { classificarId, extrairDigitos, telefoneDeId } from "../shared/phone";
+import { montarItem, type ContatoBruto, type MensagemBruta } from "./extracao";
 import { resolverLid, type ContatoLike, type PnLidEntry, type WidLike } from "./lid";
 
 // ---------------------------------------------------------------------------
@@ -17,6 +18,9 @@ import { resolverLid, type ContatoLike, type PnLidEntry, type WidLike } from "./
 
 interface WppMinimo {
   isReady?: boolean;
+  /** Emissor de eventos do wa-js (WPP.on / WPP.off). Ver docs/WA-JS.md. */
+  on?: (evento: string, ouvinte: (...args: unknown[]) => void) => unknown;
+  off?: (evento: string, ouvinte: (...args: unknown[]) => void) => unknown;
   loader?: { onReady?: (listener: () => void, delay?: number) => void };
   conn: {
     isAuthenticated(): boolean;
@@ -133,7 +137,7 @@ export function lerEstado(erro: string | null = null): EstadoWhatsapp {
 }
 
 // ---------------------------------------------------------------------------
-// Apoio para as próximas etapas (já pronto, ainda sem uso)
+// Resolução de telefone (usada pela extração)
 // ---------------------------------------------------------------------------
 
 /**
@@ -163,23 +167,71 @@ export async function resolverTelefone(id: string): Promise<string | null> {
 }
 
 // ---------------------------------------------------------------------------
-// TODO das próximas etapas (só as assinaturas)
+// Etapa 4: escuta ao vivo
 // ---------------------------------------------------------------------------
 
-/** Objeto de mensagem do WhatsApp, ainda sem forma definida (Etapa 5 documenta os campos). */
-export type MensagemWhatsapp = unknown;
+/** Objeto de mensagem do WhatsApp (MsgModel), na forma frouxa usada por extracao.ts. */
+export type MensagemWhatsapp = MensagemBruta;
 
-function naoImplementado(etapa: number): never {
-  throw new Error(`Não implementado (TODO Etapa ${etapa}).`);
+/** Evento do wa-js 4.6.0 para mensagem nova (recebida ou enviada). Evidência em docs/WA-JS.md. */
+export const EVENTO_MENSAGEM_NOVA = "chat.new_message";
+
+/** Contato do chat pela store local (WPP.contact.get). Nunca lança. */
+async function obterContato(id: string): Promise<ContatoBruto | undefined> {
+  try {
+    return ((await wpp()?.contact.get(id)) as ContatoBruto | undefined) ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
- * TODO Etapa 4: escutar mensagens novas de conversas individuais, recebidas e enviadas
- * (inclusive pelo celular), e entregar cada uma já convertida em ItemMensagem.
- * Devolve a função que cancela a escuta.
+ * Escuta mensagens novas de conversas individuais, recebidas e enviadas, e entrega cada uma já
+ * convertida em ItemMensagem (extracao.montarItem aplica os filtros: grupos, status, canais,
+ * listas de transmissão, notificações e chat próprio ficam de fora).
+ *
+ * Evento: WPP.on("chat.new_message"). No wa-js 4.6.0 ele é emitido a partir de
+ * MsgStore.on("add") para toda mensagem com isNewMsg, sem filtrar fromMe; a doc do wa-js mostra
+ * o uso com msg.fromMe para "enviei/recebi". Se dispara para as enviadas PELO CELULAR é
+ * confirmação prática da Etapa 5 (docs/WA-JS.md).
+ * Precisa do WPP pronto. Devolve a função que cancela a escuta.
  */
-export function aoReceberMensagem(_cb: (item: ItemMensagem) => void): () => void {
-  return naoImplementado(4);
+export function aoReceberMensagem(cb: (item: ItemMensagem) => void): () => void {
+  const w = exigirWppPronto();
+  if (typeof w.on !== "function") throw new Error("WPP.on indisponível nesta versão do wa-js.");
+  const ouvinte = (...args: unknown[]) => {
+    const msg = args[0] as MensagemBruta;
+    void montarItem(msg, meuNumero(), resolverTelefoneSeguro, obterContato)
+      .then((item) => {
+        if (item) cb(item);
+      })
+      .catch((erro: unknown) => console.warn("[PIOLHO] falha ao montar item", mensagemDeErro(erro)));
+  };
+  w.on(EVENTO_MENSAGEM_NOVA, ouvinte);
+  return () => {
+    try {
+      wpp()?.off?.(EVENTO_MENSAGEM_NOVA, ouvinte);
+    } catch {
+      // wa-js recarregado: nada a cancelar.
+    }
+  };
+}
+
+/** resolverTelefone que nunca lança (para a extração ao vivo). */
+async function resolverTelefoneSeguro(id: string): Promise<string | null> {
+  try {
+    return await resolverTelefone(id);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TODO das próximas etapas (só as assinaturas)
+// ---------------------------------------------------------------------------
+
+function naoImplementado(etapa: number): never {
+  throw new Error(`Não implementado (TODO Etapa ${etapa}).`);
 }
 
 /**

@@ -40,7 +40,7 @@ describe("content script: página -> service worker", () => {
     const original = montarMensagem("estado", "main", estado);
     expect(daPaginaParaExtensao(janela, janela, { ...original, payload: { ...estado, wpp_pronto: "sim" } })).toBeNull();
     expect(
-      daPaginaParaExtensao(janela, janela, montarMensagem("config", "main", { url_sistema: "https://x.com", token: "t" })),
+      daPaginaParaExtensao(janela, janela, montarMensagem("config", "main", { url_sistema: "https://x.com" })),
     ).toBeNull();
   });
 
@@ -63,5 +63,29 @@ describe("MAIN world: o que chega pela ponte", () => {
 
   it("descarta o eco das próprias publicações", () => {
     expect(filtrarRecebida(janela, janela, montarMensagem("estado", "main", estado))).toBeNull();
+  });
+});
+
+describe("content script: mensagem_nova (Etapa 4)", () => {
+  const item = {
+    wa_msg_id: "false_556288887777@c.us_3EB0AAA",
+    chat_id: "556288887777@c.us",
+    direcao: "in" as const,
+    enviada_em: "2026-10-02T14:03:11.000Z",
+    tipo_midia: "texto" as const,
+    contato: { wa_id: "556288887777@c.us", telefone: "5562988887777", nome_agenda: null, pushname: "Maria" },
+    texto_abertura: null,
+    ctwa: null,
+  };
+
+  it("repassa mensagem_nova do MAIN world", () => {
+    const original = montarMensagem("mensagem_nova", "main", { item, numero_monitorado: "5562999999999" });
+    expect(daPaginaParaExtensao(janela, janela, original)).toEqual({ ...original, origem: "content" });
+  });
+
+  it("descarta mensagem_nova com item fora do contrato", () => {
+    const original = montarMensagem("mensagem_nova", "main", { item, numero_monitorado: "5562999999999" });
+    const ruim = { ...original, payload: { ...original.payload, item: { ...item, tipo_midia: "sticker" } } };
+    expect(daPaginaParaExtensao(janela, janela, ruim)).toBeNull();
   });
 });

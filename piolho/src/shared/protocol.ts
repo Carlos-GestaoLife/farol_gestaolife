@@ -149,8 +149,15 @@ export const estadoWhatsappSchema = z.object({
 
 export type EstadoWhatsapp = z.infer<typeof estadoWhatsappSchema>;
 
-/** Mensagem nova capturada ao vivo ou na varredura. TODO Etapa 4 (escuta) e Etapa 7 (varredura). */
-export const mensagemNovaSchema = z.object({ item: itemMensagemSchema });
+/**
+ * Mensagem nova capturada ao vivo (Etapa 4) ou na varredura (TODO Etapa 7). Leva o número da conta
+ * logada no momento da captura: é ele que compõe a chave da fila (numero:wa_msg_id) e o
+ * numero_monitorado do lote, mesmo que a conta da aba mude depois.
+ */
+export const mensagemNovaSchema = z.object({
+  item: itemMensagemSchema,
+  numero_monitorado: telefoneCanonico,
+});
 
 export type MensagemNova = z.infer<typeof mensagemNovaSchema>;
 
@@ -173,23 +180,55 @@ export const varreduraSchema = z.discriminatedUnion("fase", [
 
 export type Varredura = z.infer<typeof varreduraSchema>;
 
-/** Configuração (URL do sistema e token) do painel para o service worker. TODO Etapa 2. */
+/**
+ * Aviso do painel ao service worker de que a configuração mudou. O token NÃO viaja aqui: o service
+ * worker relê URL e token do chrome.storage.local (fonte da verdade) e manda um heartbeat na hora.
+ */
 export const configSchema = z.object({
   url_sistema: z.url().max(LIMITES.url),
-  token: z.string().min(1).max(LIMITES.token).nullable(),
 });
 
 export type Config = z.infer<typeof configSchema>;
 
-/** Situação da fila, do service worker para o painel. TODO Etapa 3 e Etapa 8. */
-export const statusFilaSchema = z.object({
-  pendentes: z.number().int().min(0),
-  ultimo_envio_em: dataIso.nullable(),
-  ultimo_erro: textoErro.nullable(),
-  token_invalido: z.boolean(),
+/** Tipos de falha de uma chamada ao servidor (classificação de src/background/api.ts). */
+export const TIPOS_ERRO = ["token_invalido", "erro_cliente", "erro_servidor", "rede", "resposta_invalida"] as const;
+export type TipoErro = (typeof TIPOS_ERRO)[number];
+
+export const erroExecucaoSchema = z.object({
+  quando: dataIso,
+  tipo: z.enum(TIPOS_ERRO),
+  /** Já sem o token: o cliente HTTP nunca coloca o token em mensagens. */
+  mensagem: textoErro,
 });
 
-export type StatusFila = z.infer<typeof statusFilaSchema>;
+export type ErroExecucao = z.infer<typeof erroExecucaoSchema>;
+
+/** Situação do service worker (heartbeat, fila, envio), para o painel. */
+export const statusPiolhoSchema = z.object({
+  /** URL e token presentes no chrome.storage.local. */
+  configurado: z.boolean(),
+  url_sistema: z.string().max(LIMITES.url),
+  /** Número da aba do WhatsApp pronta, ou null. */
+  numero: telefoneCanonico.nullable(),
+  token_invalido: z.boolean(),
+  ultimo_heartbeat_em: dataIso.nullable(),
+  ultimo_sync_servidor: dataIso.nullable(),
+  qtd_padroes_texto: z.number().int().min(0),
+  /** Itens na fila do número atual (ou de todos, sem número). */
+  pendentes: z.number().int().min(0),
+  /** Itens recusados pelo servidor (guardados, no máximo os 500 mais recentes). */
+  rejeitados: z.number().int().min(0),
+  ultimo_envio: z
+    .object({ quando: dataIso, aceitos: z.number().int().min(0), rejeitados: z.number().int().min(0) })
+    .nullable(),
+  ultimo_erro: erroExecucaoSchema.nullable(),
+  /** Backoff: nenhum envio antes deste instante (null = liberado). */
+  proximo_envio_em: dataIso.nullable(),
+  /** Maior enviada_em aceito pelo servidor para o número atual. */
+  checkpoint: dataIso.nullable(),
+});
+
+export type StatusPiolho = z.infer<typeof statusPiolhoSchema>;
 
 /** Resposta do service worker ao pedido `obter_estado` do painel. */
 export const respostaObterEstadoSchema = z.object({
@@ -197,6 +236,7 @@ export const respostaObterEstadoSchema = z.object({
   aba_id: z.number().int().nullable(),
   /** Quando o service worker recebeu esse estado (ISO). */
   recebido_em: dataIso.nullable(),
+  status: statusPiolhoSchema,
 });
 
 export type RespostaObterEstado = z.infer<typeof respostaObterEstadoSchema>;
@@ -220,8 +260,14 @@ export const mensagemPonteSchema = z.discriminatedUnion("tipo", [
   z.object({ ...envelope, tipo: z.literal("mensagem_nova"), payload: mensagemNovaSchema }),
   z.object({ ...envelope, tipo: z.literal("varredura"), payload: varreduraSchema }),
   z.object({ ...envelope, tipo: z.literal("config"), payload: configSchema }),
-  z.object({ ...envelope, tipo: z.literal("status_fila"), payload: statusFilaSchema }),
   z.object({ ...envelope, tipo: z.literal("obter_estado"), payload: z.null() }),
+  /** Botão "Enviar heartbeat agora" do painel. Resposta: StatusPiolho. */
+  z.object({ ...envelope, tipo: z.literal("heartbeat_agora"), payload: z.null() }),
+  /**
+   * Só em build de desenvolvimento (BUILD_DEV): roda o tick do alarm na hora, ignorando o backoff.
+   * Usado pelo roteiro e2e. Num build de produção o service worker ignora.
+   */
+  z.object({ ...envelope, tipo: z.literal("tick_teste"), payload: z.null() }),
 ]);
 
 export type MensagemPonte = z.infer<typeof mensagemPonteSchema>;

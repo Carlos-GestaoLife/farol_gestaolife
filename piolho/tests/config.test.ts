@@ -46,3 +46,22 @@ describe("interpretarEstado (banner)", () => {
     expect(interpretarEstado({ ...base, estado: { ...estado, autenticado: false } }, agora).situacao).toBe("nao_autenticado");
   });
 });
+
+describe("build de desenvolvimento (PIOLHO_SISTEMA_URL)", () => {
+  it("sem variável usa produção; com variável normaliza; inválida falha o build", async () => {
+    const { URL_SISTEMA_PRODUCAO, urlSistemaDoBuild } = await import("../src/shared/config");
+    expect(urlSistemaDoBuild(undefined)).toBe(URL_SISTEMA_PRODUCAO);
+    expect(urlSistemaDoBuild("  ")).toBe(URL_SISTEMA_PRODUCAO);
+    expect(urlSistemaDoBuild("http://localhost:3000/")).toBe("http://localhost:3000");
+    expect(() => urlSistemaDoBuild("http://exemplo.com")).toThrow(/PIOLHO_SISTEMA_URL/);
+  });
+
+  it("manifest leva o host do build em host_permissions", async () => {
+    const { construirManifest } = await import("../manifest.config");
+    expect(construirManifest().host_permissions).toEqual([
+      "https://web.whatsapp.com/*",
+      "https://farol-sistema-leads.vercel.app/*",
+    ]);
+    expect(construirManifest("http://localhost:3000").host_permissions).toContain("http://localhost/*");
+  });
+});

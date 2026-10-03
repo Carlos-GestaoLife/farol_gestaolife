@@ -1,6 +1,7 @@
-// Consulta o service worker a cada 2 s e traduz o último estado do WhatsApp para o banner.
-import { useEffect, useState } from "react";
-import type { RespostaObterEstado } from "../../shared/protocol";
+// Consulta o service worker a cada 2 s: traduz o último estado do WhatsApp para o banner e traz
+// o status do envio (heartbeat, fila, rejeitados, último envio, erro).
+import { useCallback, useEffect, useState } from "react";
+import type { RespostaObterEstado, StatusPiolho } from "../../shared/protocol";
 import { obterEstado } from "../ponte";
 
 export type SituacaoConexao = "desconectado" | "carregando" | "falha_wajs" | "nao_autenticado" | "conectado";
@@ -33,7 +34,10 @@ function conexao(situacao: SituacaoConexao, numero: string | null = null, tecnic
 }
 
 /** Traduz a resposta do service worker em situação de conexão. Função pura. */
-export function interpretarEstado(resposta: RespostaObterEstado, agora: number): Conexao {
+export function interpretarEstado(
+  resposta: Pick<RespostaObterEstado, "estado" | "recebido_em"> & Partial<RespostaObterEstado>,
+  agora: number,
+): Conexao {
   const { estado, recebido_em } = resposta;
   if (estado === null || recebido_em === null) return conexao("desconectado");
   if (agora - Date.parse(recebido_em) > VALIDADE_ESTADO_MS) return conexao("desconectado");
@@ -47,8 +51,17 @@ function mesma(a: Conexao, b: Conexao): boolean {
   return a.situacao === b.situacao && a.numero === b.numero && a.tecnico === b.tecnico;
 }
 
-export function useEstado(): Conexao {
+export interface EstadoPainel {
+  conexao: Conexao;
+  /** Status do service worker, ou null antes da primeira resposta. */
+  status: StatusPiolho | null;
+  /** Troca o status na hora (depois de salvar a configuração ou pedir um heartbeat). */
+  definirStatus(status: StatusPiolho): void;
+}
+
+export function useEstado(): EstadoPainel {
   const [atual, setAtual] = useState<Conexao>(conexao("carregando"));
+  const [status, setStatus] = useState<StatusPiolho | null>(null);
 
   useEffect(() => {
     let ativo = true;
@@ -58,14 +71,22 @@ export function useEstado(): Conexao {
       if (emVoo) return;
       emVoo = true;
       let nova: Conexao;
+      let novoStatus: StatusPiolho | null = null;
       try {
-        nova = interpretarEstado(await obterEstado(), Date.now());
+        const resposta = await obterEstado();
+        nova = interpretarEstado(resposta, Date.now());
+        novoStatus = resposta.status;
       } catch (erro) {
         nova = conexao("desconectado", null, erro instanceof Error ? erro.message : String(erro));
       } finally {
         emVoo = false;
       }
-      if (ativo) setAtual((anterior) => (mesma(anterior, nova) ? anterior : nova));
+      if (!ativo) return;
+      setAtual((anterior) => (mesma(anterior, nova) ? anterior : nova));
+      if (novoStatus) {
+        const s = novoStatus;
+        setStatus((anterior) => (anterior && JSON.stringify(anterior) === JSON.stringify(s) ? anterior : s));
+      }
     };
 
     void consultar();
@@ -76,5 +97,6 @@ export function useEstado(): Conexao {
     };
   }, []);
 
-  return atual;
+  const definirStatus = useCallback((s: StatusPiolho) => setStatus(s), []);
+  return { conexao: atual, status, definirStatus };
 }

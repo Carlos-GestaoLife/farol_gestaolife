@@ -1,7 +1,10 @@
 // Seção "Configuração": URL do sistema e token do dispositivo, salvos em chrome.storage.local.
 // O token nunca volta para a tela depois de salvo: o painel só mostra se está configurado.
-// Etapa 1: só salva. TODO Etapa 2: avisar o service worker (mensagem `config`) e mandar o heartbeat.
+// Depois de salvar, avisa o service worker (mensagem `config`, sem o token): ele relê a
+// configuração do chrome.storage.local e manda um heartbeat na hora.
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import type { StatusPiolho } from "../../shared/protocol";
+import { avisarConfig } from "../ponte";
 import { URL_SISTEMA_PADRAO, normalizarUrlSistema, padraoDeHost } from "../../shared/config";
 import {
   lerUrlSistema,
@@ -13,7 +16,7 @@ import {
 
 type Retorno = { tom: "ok" | "erro"; texto: string } | null;
 
-export function Configuracao() {
+export function Configuracao({ aoSalvar }: { aoSalvar?: (status: StatusPiolho) => void }) {
   const [urlSalva, setUrlSalva] = useState<string | null>(null);
   const [urlDigitada, setUrlDigitada] = useState("");
   const [tokenOk, setTokenOk] = useState(false);
@@ -72,6 +75,13 @@ export function Configuracao() {
           setTokenOk(true);
         }
         setRetorno({ tom: "ok", texto: "Configuração salva." });
+        try {
+          const status = await avisarConfig(url);
+          aoSalvar?.(status);
+        } catch (erro) {
+          // Salvo mesmo assim: o service worker também percebe a mudança pelo storage.
+          console.warn("[PIOLHO] não consegui avisar o service worker", erro);
+        }
       } catch (erro) {
         const detalhe = erro instanceof Error ? erro.message : String(erro);
         setRetorno({ tom: "erro", texto: `Não consegui salvar: ${detalhe}` });
@@ -79,7 +89,7 @@ export function Configuracao() {
         setSalvando(false);
       }
     },
-    [urlDigitada, tokenDigitado],
+    [urlDigitada, tokenDigitado, aoSalvar],
   );
 
   const remover = useCallback(async () => {

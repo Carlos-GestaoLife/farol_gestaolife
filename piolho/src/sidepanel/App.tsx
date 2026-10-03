@@ -1,12 +1,14 @@
-// Side panel do piolho. Etapa 1: status da conexão com o WhatsApp e configuração.
-// TODO Etapa 8: nome do dispositivo, fila pendente, último envio, último erro e "Forçar varredura".
+// Side panel do piolho: conexão com o WhatsApp, envio ao sistema (heartbeat, fila, rejeitados,
+// último envio e erro) e configuração.
+// TODO Etapa 8: nome do dispositivo e "Forçar varredura".
 import { BannerStatus } from "./components/BannerStatus";
 import { Configuracao } from "./components/Configuracao";
+import { Envio } from "./components/Envio";
 import { Rodape } from "./components/Rodape";
 import { useEstado } from "./state/useEstado";
 
 export function App() {
-  const conexao = useEstado();
+  const { conexao, status, definirStatus } = useEstado();
   return (
     <div className="app">
       <header className="cabecalho">
@@ -15,7 +17,8 @@ export function App() {
       </header>
       <BannerStatus conexao={conexao} />
       <main className="conteudo">
-        <Configuracao />
+        <Envio status={status} definirStatus={definirStatus} />
+        <Configuracao aoSalvar={definirStatus} />
       </main>
       <Rodape />
     </div>

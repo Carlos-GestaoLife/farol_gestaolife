@@ -9,10 +9,20 @@ import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { construirManifest } from "./manifest.config.ts";
+import { urlSistemaDoBuild } from "./src/shared/config.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// Build de desenvolvimento: PIOLHO_SISTEMA_URL=http://localhost:3000 npm run build. A URL vira o
+// padrão da configuração e entra em host_permissions; sem a variável, vale a produção.
+const URL_SISTEMA = urlSistemaDoBuild(process.env.PIOLHO_SISTEMA_URL);
+const BUILD_DEV = Boolean(process.env.PIOLHO_SISTEMA_URL?.trim());
+
 export default defineConfig({
+  define: {
+    __PIOLHO_SISTEMA_URL__: JSON.stringify(URL_SISTEMA),
+    __PIOLHO_DEV__: JSON.stringify(BUILD_DEV),
+  },
   plugins: [
     react(),
     {
@@ -21,7 +31,7 @@ export default defineConfig({
         this.emitFile({
           type: "asset",
           fileName: "manifest.json",
-          source: JSON.stringify(construirManifest(), null, 2) + "\n",
+          source: JSON.stringify(construirManifest(URL_SISTEMA), null, 2) + "\n",
         });
       },
     },

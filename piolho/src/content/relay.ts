@@ -3,9 +3,9 @@ import { montarMensagem, validarMensagem, type MensagemPonte, type TipoMensagem 
 
 /**
  * Tipos que o content script repassa do MAIN world para o service worker.
- * Etapa 1: só `estado`. TODO Etapa 4: `mensagem_nova`. TODO Etapa 7: `varredura` (progresso).
+ * `estado` (Etapa 1) e `mensagem_nova` (Etapa 4). TODO Etapa 7: `varredura` (progresso).
  */
-export const TIPOS_PAGINA_PARA_SW = new Set<TipoMensagem>(["estado"]);
+export const TIPOS_PAGINA_PARA_SW = new Set<TipoMensagem>(["estado", "mensagem_nova"]);
 
 /**
  * Decide o que fazer com uma mensagem vinda da página (window.postMessage).

@@ -10,6 +10,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+import { urlSistemaDoBuild } from "./src/shared/config.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -38,6 +39,9 @@ export default defineConfig(({ mode }) => {
     // Modo lib não substitui process.env.NODE_ENV sozinho.
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
+      // Mesmos valores do passe 1 (vite.config.ts), para src/shared/config.ts ficar igual em tudo.
+      __PIOLHO_SISTEMA_URL__: JSON.stringify(urlSistemaDoBuild(process.env.PIOLHO_SISTEMA_URL)),
+      __PIOLHO_DEV__: JSON.stringify(Boolean(process.env.PIOLHO_SISTEMA_URL?.trim())),
     },
     build: {
       outDir: "dist",

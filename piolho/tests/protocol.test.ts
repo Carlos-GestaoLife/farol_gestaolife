@@ -149,7 +149,13 @@ describe("envelope da ponte", () => {
   });
 
   it("aceita os tipos previstos para as próximas etapas", () => {
-    expect(validarMensagem(montarMensagem("mensagem_nova", "main", { item: ITEM }))).not.toBeNull();
+    expect(
+      validarMensagem(montarMensagem("mensagem_nova", "main", { item: ITEM, numero_monitorado: "5562999999999" })),
+    ).not.toBeNull();
+    // Número monitorado fora da forma canônica.
+    expect(
+      validarMensagem(montarMensagem("mensagem_nova", "main", { item: ITEM, numero_monitorado: "5562999999999@c.us" })),
+    ).toBeNull();
     expect(validarMensagem(montarMensagem("varredura", "service_worker", { fase: "pedido", desde: null }))).not.toBeNull();
     expect(
       validarMensagem(
@@ -164,18 +170,16 @@ describe("envelope da ponte", () => {
       ),
     ).not.toBeNull();
     expect(
-      validarMensagem(montarMensagem("config", "painel", { url_sistema: "https://exemplo.com", token: null })),
+      validarMensagem(montarMensagem("config", "painel", { url_sistema: "https://exemplo.com" })),
     ).not.toBeNull();
-    expect(
-      validarMensagem(
-        montarMensagem("status_fila", "service_worker", {
-          pendentes: 0,
-          ultimo_envio_em: null,
-          ultimo_erro: null,
-          token_invalido: false,
-        }),
-      ),
-    ).not.toBeNull();
+    expect(validarMensagem(montarMensagem("heartbeat_agora", "painel", null))).not.toBeNull();
+    expect(validarMensagem(montarMensagem("tick_teste", "painel", null))).not.toBeNull();
+  });
+
+  it("a mensagem config nunca carrega o token", () => {
+    const m = { ...montarMensagem("config", "painel", { url_sistema: "https://exemplo.com" }) };
+    const v = validarMensagem({ ...m, payload: { url_sistema: "https://exemplo.com", token: "pio_segredo" } });
+    expect(v?.payload).toEqual({ url_sistema: "https://exemplo.com" });
   });
 
   it("rejeita namespace, origem, tipo e requestId errados", () => {
