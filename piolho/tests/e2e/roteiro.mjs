@@ -1,4 +1,4 @@
-// Roteiro e2e MANUAL do piolho (Etapas 2 a 4) contra o Sistema de Leads local. Não roda no
+// Roteiro e2e MANUAL do piolho (Etapas 2 a 8) contra o Sistema de Leads local. Não roda no
 // `npm test`: use `npm run e2e` (passo a passo no README, seção "Teste de ponta a ponta").
 //
 // O que faz: abre o Chromium com a extensão de dist/, serve uma página falsa no lugar de
@@ -10,7 +10,15 @@
 // 3. reenvio das mesmas 3: fila esvazia e o banco não muda;
 // 4. "internet caída" (rota do sistema abortada): 2 mensagens ficam na fila com erro `rede` e
 //    proximo_envio_em no futuro; liberada a rota, o tick de teste esvazia a fila;
-// 5. token inválido: painel mostra "Token inválido" e nada é enviado; token certo: volta a enviar.
+// 5. token inválido: painel mostra "Token inválido" e nada é enviado; token certo: volta a enviar;
+// 6. (a) origem com padrão: o heartbeat traz o padrão; num chat que já tinha mensagem no histórico
+//    local, a mensagem que casa chega com texto_abertura e "oi" chega sem; a pessoa fica com a origem;
+// 7. (b) ctwaContext falso com sourceId 123456789: ctwa sem thumbnail e origem automática
+//    "Anúncio não cadastrado 123456789";
+// 8. (d) modo descoberta: console da aba com o contexto do anúncio e sem o body;
+// 9. (c) "Forçar varredura" com 3 chats individuais e 1 grupo no histórico falso: só os 30 dias dos
+//    individuais entram, progresso no painel, rodar de novo não duplica.
+// Além disso: a varredura automática de início roda depois do primeiro heartbeat.
 //
 // Variáveis: PIOLHO_E2E_TOKEN (obrigatória, token de um dispositivo ativo), PIOLHO_SISTEMA_URL
 // (padrão http://localhost:3000, a mesma do build), DATABASE_URL (opcional: confere o banco),
@@ -62,13 +70,44 @@ async function esperar(descricao, fn, timeoutMs = 30_000, intervaloMs = 300) {
   throw new Error(`FALHOU (tempo esgotado): ${descricao}. Último valor: ${JSON.stringify(ultimo)}`);
 }
 
-/** Página falsa do WhatsApp: WPP pronto, logado, com emissor de chat.new_message. */
+/**
+ * Página falsa do WhatsApp: WPP pronto, logado, com emissor de chat.new_message e um histórico de
+ * mensagens por chat para WPP.chat.list e WPP.chat.getMessages (Etapas 6 e 7). O `list` falso NÃO
+ * filtra por onlyUsers (pior caso: o filtro do piolho por sufixo é que tira grupos e status).
+ */
 const PAGINA_WA = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>WhatsApp falso</title></head>
 <body><p>WhatsApp falso do roteiro e2e do piolho</p>
 <script>
   (function () {
     const ouvintes = {};
     const contatos = { "${CONTATO_WID}": { pushname: "Maria E2E", isMyContact: false } };
+    const eu = { _serialized: "${MEU_WID}" };
+    /** chatId -> mensagens (ordenadas por t). */
+    const historico = {};
+    const atraso = () => new Promise(function (r) { setTimeout(r, 120); });
+    function montar(m) {
+      const fromMe = !!m.fromMe;
+      const remoto = { _serialized: m.chat };
+      const msg = {
+        id: { _serialized: fromMe + "_" + m.chat + "_" + m.id, fromMe: fromMe },
+        from: fromMe ? eu : remoto,
+        to: fromMe ? remoto : eu,
+        t: m.t,
+        type: m.type || "chat",
+        body: m.body,
+        notifyName: fromMe ? "" : "Maria E2E",
+        isNewMsg: true,
+      };
+      if (m.ctwaContext) msg.ctwaContext = m.ctwaContext;
+      if (m.contextInfo) msg.contextInfo = m.contextInfo;
+      return msg;
+    }
+    function guardar(msg, chatId) {
+      const lista = (historico[chatId] = historico[chatId] || []);
+      if (lista.some(function (x) { return x.id._serialized === msg.id._serialized; })) return;
+      lista.push(msg);
+      lista.sort(function (a, b) { return a.t - b.t; });
+    }
     window.WPP = {
       isReady: true,
       loader: { onReady: function () {} },
@@ -81,27 +120,41 @@ const PAGINA_WA = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
         get: async function (id) { return contatos[id]; },
         getPnLidEntry: async function () { return undefined; },
       },
+      chat: {
+        list: async function () {
+          await atraso();
+          return Object.keys(historico).map(function (id) {
+            const lista = historico[id];
+            return { id: { _serialized: id }, isUser: !id.endsWith("@g.us"), t: lista.length ? lista[lista.length - 1].t : 0 };
+          });
+        },
+        getMessages: async function (chatId, o) {
+          await atraso();
+          window.__piolhoChamadasGetMessages = (window.__piolhoChamadasGetMessages || 0) + 1;
+          const lista = historico[chatId] || [];
+          const n = (o && o.count) || 20;
+          const dir = o && o.direction === "after" ? "after" : "before";
+          if (!o || !o.id) return lista.slice(Math.max(0, lista.length - n));
+          const i = lista.findIndex(function (x) { return x.id._serialized === o.id; });
+          if (i === -1) return [];
+          return dir === "before" ? lista.slice(Math.max(0, i - n), i) : lista.slice(i + 1, i + 1 + n);
+        },
+      },
       on: function (ev, cb) { (ouvintes[ev] = ouvintes[ev] || []).push(cb); },
       off: function (ev, cb) { ouvintes[ev] = (ouvintes[ev] || []).filter(function (f) { return f !== cb; }); },
     };
     window.__piolhoOuvintes = function () { return (ouvintes["chat.new_message"] || []).length; };
+    /** Mensagem nova: entra no histórico (como na MsgStore) e dispara chat.new_message. */
     window.__piolhoEmitir = function (msgs) {
       msgs.forEach(function (m) {
-        const fromMe = m.fromMe;
-        const remoto = { _serialized: m.chat };
-        const eu = { _serialized: "${MEU_WID}" };
-        const msg = {
-          id: { _serialized: fromMe + "_" + m.chat + "_" + m.id, fromMe: fromMe },
-          from: fromMe ? eu : remoto,
-          to: fromMe ? remoto : eu,
-          t: m.t,
-          type: m.type || "chat",
-          body: m.body,
-          notifyName: fromMe ? "" : "Maria E2E",
-          isNewMsg: true,
-        };
+        const msg = montar(m);
+        guardar(msg, m.chat);
         (ouvintes["chat.new_message"] || []).forEach(function (cb) { cb(msg); });
       });
+    };
+    /** Histórico antigo (só local, sem evento): o que o WhatsApp Web já tinha carregado. */
+    window.__piolhoSemear = function (msgs) {
+      msgs.forEach(function (m) { guardar(montar(m), m.chat); });
     };
   })();
 </script></body></html>`;
@@ -210,6 +263,12 @@ async function main() {
     ok(hb?.status === 200, `heartbeat respondeu ${hb?.status}`);
     await esperar("painel com último heartbeat", async () => (await texto("ultimo-heartbeat")) !== "nunca");
     ok(true, `painel: Último heartbeat "${await texto("ultimo-heartbeat")}", Servidor "${await texto("sync-servidor")}"`);
+    // Etapa 7: depois do primeiro heartbeat a varredura automática roda (histórico vazio aqui).
+    const vAuto = await esperar("varredura automática concluída", async () => {
+      const v = (await status()).varredura;
+      return v?.situacao === "concluida" ? v : null;
+    });
+    ok(!vAuto.forcada && vAuto.chats_total === 0, `varredura automática de início: ${vAuto.chats_total} chats, desde ${vAuto.desde}`);
     if (db) {
       const [d] = await consultar("select numero_detectado, ultimo_sinal_em, versao_extensao from dispositivos where token_hash = $1", [hashToken]);
       ok(d?.numero_detectado === MEU && d.ultimo_sinal_em !== null, `dispositivo: numero_detectado=${d?.numero_detectado}, ultimo_sinal_em preenchido`);
@@ -339,6 +398,209 @@ async function main() {
       const banco4 = await contarBanco();
       ok(banco4.mensagens === 6, `banco: 6 mensagens no fim (${banco4.mensagens})`);
     }
+
+
+    // ======================================================================
+    // Etapas 5 a 8
+    // ======================================================================
+    const agora2 = Math.floor(Date.now() / 1000);
+    const DIA = 24 * 60 * 60;
+
+    // ---- (a) texto_abertura por padrão cadastrado ----
+    // Regra do servidor (casaPadrao): o texto normalizado é igual ao padrão ou COMEÇA com ele.
+    // Por isso o padrão cadastrado é "ola! quero saber do gestao na veia" (com o "Olá!"):
+    // "quero saber do gestao na veia" sozinho não casa com "Olá! Quero saber...".
+    const PADRAO = "ola! quero saber do gestao na veia";
+    const CODIGO_ORIGEM = `e2e-gestao-na-veia-${SUFIXO}`;
+    const A_WID = "556277770001@c.us";
+    const A_TEL = "5562977770001";
+    let origemPadraoId = null;
+    if (db) {
+      const [o] = await consultar(
+        "insert into origens (codigo, nome, tipo, padrao_texto, ativo) values ($1, $2, 'link_whatsapp', $3, true) returning id",
+        [CODIGO_ORIGEM, "E2E Gestão na Veia", PADRAO],
+      );
+      origemPadraoId = o.id;
+      await painel.click('[data-testid="botao-heartbeat"]');
+      const sp = await esperar("heartbeat traz o padrão", async () => {
+        const st = await status();
+        return st.padroes_texto.includes(PADRAO) ? st : null;
+      });
+      ok(sp.padroes_texto.includes(PADRAO), `heartbeat trouxe padroes_texto ${JSON.stringify(sp.padroes_texto)}`);
+      await esperar("painel lista o padrão", async () => (await texto("lista-padroes"))?.includes(PADRAO));
+      ok(true, "painel mostra os padrões recebidos");
+      await new Promise((r) => setTimeout(r, 800)); // padrões chegando ao MAIN world pela ponte
+      // O chat já tinha uma mensagem (5 dias atrás) no histórico local do WhatsApp.
+      await wa.evaluate(
+        (m) => window.__piolhoSemear(m),
+        [{ id: `E2E${SUFIXO}A0`, chat: A_WID, fromMe: false, t: agora2 - 5 * DIA, body: "boa tarde" }],
+      );
+      const doisA = [
+        { id: `E2E${SUFIXO}A1`, chat: A_WID, fromMe: false, t: agora2 - 100, body: "Olá! Quero saber do Gestão na Veia Maceió" },
+        { id: `E2E${SUFIXO}A2`, chat: A_WID, fromMe: false, t: agora2 - 50, body: "oi" },
+      ];
+      await wa.evaluate((msgs) => window.__piolhoEmitir(msgs), doisA);
+      const linhasA = await esperar("2 mensagens do contato A no banco", async () => {
+        const r = await consultar("select wa_msg_id, texto_abertura from mensagens where chat_id = $1 order by enviada_em", [A_WID]);
+        return r.length === 2 ? r : null;
+      });
+      ok(linhasA[0].texto_abertura === "Olá! Quero saber do Gestão na Veia Maceió", `(a) mensagem com padrão chegou com texto_abertura "${linhasA[0].texto_abertura}"`);
+      ok(linhasA[1].texto_abertura === null, "(a) mensagem \"oi\" no mesmo chat chegou com texto_abertura null");
+      const [pa] = await consultar(
+        "select p.origem_primeiro_toque_id as origem, (select origem_id from eventos e where e.pessoa_id = p.id and e.tipo = 'conversa_iniciada' limit 1) as origem_evento from identificadores i join pessoas p on p.id = i.pessoa_id where i.tipo = 'telefone' and i.valor = $1",
+        [A_TEL],
+      );
+      ok(pa?.origem === origemPadraoId && pa?.origem_evento === origemPadraoId, "(a) pessoa ficou com a origem do padrão (primeiro toque e conversa_iniciada)");
+    }
+
+    // ---- (b) ctwa ----
+    const B_WID = "556277770002@c.us";
+    const B_TEL = "5562977770002";
+    await wa.evaluate(
+      (m) => window.__piolhoEmitir(m),
+      [
+        {
+          id: `E2E${SUFIXO}B1`,
+          chat: B_WID,
+          fromMe: false,
+          t: agora2 - 40,
+          body: "Olá, vi o anúncio",
+          ctwaContext: {
+            sourceId: "123456789",
+            sourceType: "ad",
+            sourceUrl: "https://fb.me/e2eanuncio",
+            title: "Gestão PRO",
+            thumbnail: "/9j/" + "A".repeat(300),
+            ctwaClid: "clique-e2e",
+          },
+        },
+      ],
+    );
+    if (db) {
+      const [mb] = await esperar("mensagem com ctwa no banco", async () => {
+        const r = await consultar("select ctwa from mensagens where chat_id = $1", [B_WID]);
+        return r.length === 1 ? r : null;
+      });
+      ok(mb.ctwa?.sourceId === "123456789" && !("thumbnail" in mb.ctwa) && !("ctwaClid" in mb.ctwa), `(b) ctwa gravado sem thumbnail nem clique: ${JSON.stringify(mb.ctwa)}`);
+      const [ob] = await consultar("select id, nome, meta_ad_id, criada_automaticamente from origens where meta_ad_id = '123456789'");
+      ok(ob?.nome === "Anúncio não cadastrado 123456789" && ob.criada_automaticamente, `(b) origem automática "${ob?.nome}"`);
+      const [pb] = await consultar(
+        "select p.origem_primeiro_toque_id as origem from identificadores i join pessoas p on p.id = i.pessoa_id where i.tipo = 'telefone' and i.valor = $1",
+        [B_TEL],
+      );
+      ok(pb?.origem === ob.id, "(b) pessoa com a origem do anúncio");
+    }
+
+    // ---- (d) modo descoberta ----
+    const logsDescoberta = [];
+    wa.on("console", async (mensagem) => {
+      try {
+        const partes = await Promise.all(mensagem.args().map((a) => a.jsonValue().catch(() => "?")));
+        const linha = partes.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ");
+        if (linha.includes("[piolho descoberta]")) logsDescoberta.push(linha);
+      } catch {
+        // página fechando
+      }
+    });
+    await painel.click('[data-testid="botao-descoberta"]');
+    await esperar("painel com modo descoberta ligado", async () => (await painel.$('[data-testid="descoberta-ativa"]')) !== null);
+    await esperar("MAIN world avisado", async () => logsDescoberta.some((l) => l.includes("LIGADO")));
+    await wa.evaluate(
+      (m) => window.__piolhoEmitir(m),
+      [
+        {
+          id: `E2E${SUFIXO}D1`,
+          chat: B_WID,
+          fromMe: false,
+          t: agora2 - 30,
+          body: "SEGREDO-DO-CORPO",
+          contextInfo: { externalAdReply: { sourceId: "123456789", jpegThumbnail: "BBBBBBBB" } },
+        },
+      ],
+    );
+    await esperar("log da descoberta", async () => logsDescoberta.some((l) => l.includes(`E2E${SUFIXO}D1`)));
+    const juntos = logsDescoberta.join("\n");
+    ok(juntos.includes("contextInfo.externalAdReply") && juntos.includes("123456789"), "(d) console mostra o contexto do anúncio");
+    ok(!juntos.includes("SEGREDO-DO-CORPO") && !juntos.includes("BBBBBBBB"), "(d) console sem o campo body e sem thumbnail");
+    ok(true, `(d) exemplo: ${logsDescoberta.find((l) => l.includes("resumo"))?.slice(0, 160)}...`);
+    if (db) {
+      await esperar("mensagem da descoberta no banco", async () =>
+        (await consultar("select 1 from mensagens where wa_msg_id = $1", [`false_${B_WID}_E2E${SUFIXO}D1`])).length === 1,
+      );
+    }
+    await painel.click('[data-testid="botao-descoberta"]');
+    await esperar("descoberta desligada", async () => (await painel.$('[data-testid="descoberta-ativa"]')) === null);
+    await print("descoberta");
+
+    // ---- (c) varredura forçada ----
+    const V = ["556266660001@c.us", "556266660002@c.us", "556266660003@c.us"];
+    const GRUPO = "120363099999999999@g.us";
+    const semear = [
+      { id: `V${SUFIXO}11`, chat: V[0], fromMe: false, t: agora2 - 40 * DIA, body: "antiga demais" },
+      { id: `V${SUFIXO}12`, chat: V[0], fromMe: false, t: agora2 - 20 * DIA, body: "oi" },
+      { id: `V${SUFIXO}13`, chat: V[0], fromMe: true, t: agora2 - 19 * DIA, body: "olá" },
+      { id: `V${SUFIXO}14`, chat: V[0], fromMe: false, t: agora2 - DIA, body: "e aí?" },
+      { id: `V${SUFIXO}21`, chat: V[1], fromMe: false, t: agora2 - 35 * DIA, body: "antiga" },
+      { id: `V${SUFIXO}22`, chat: V[1], fromMe: false, t: agora2 - 3 * DIA, body: "Olá! Quero saber do Gestão na Veia" },
+      { id: `V${SUFIXO}23`, chat: V[1], fromMe: true, t: agora2 - 3 * DIA + 60, body: "claro" },
+      { id: `V${SUFIXO}31`, chat: V[2], fromMe: false, t: agora2 - 10 * DIA, body: "primeira mensagem" },
+      { id: `V${SUFIXO}G1`, chat: GRUPO, fromMe: false, t: agora2 - DIA, body: "grupo" },
+    ];
+    await wa.evaluate((m) => window.__piolhoSemear(m), semear);
+    const contarV = async () =>
+      (await consultar("select count(*)::int c from mensagens where chat_id = any($1::text[])", [V]))[0].c;
+    await esperar("fila zerada antes da varredura", async () => (await status()).pendentes === 0);
+    const totalAntes = db ? (await consultar("select count(*)::int c from mensagens"))[0].c : 0;
+
+    const rodarVarredura = async (rotulo) => {
+      const antes = (await status()).varredura?.iniciada_em ?? null;
+      await painel.click('[data-testid="botao-forcar-varredura"]');
+      let viuRodando = false;
+      let textoPainel = "";
+      const fim = await esperar(`${rotulo} concluída`, async () => {
+        const v = (await status()).varredura;
+        const t = await texto("varredura-progresso");
+        if (t?.startsWith("Varrendo chat")) textoPainel = t;
+        if (v?.situacao === "rodando" && v.chats_total > 0) viuRodando = true;
+        return v && v.iniciada_em !== antes && v.situacao === "concluida" ? v : null;
+      }, 60_000, 150);
+      await esperar("fila zerada depois da varredura", async () => (await status()).pendentes === 0);
+      return { fim, viuRodando, textoPainel };
+    };
+
+    const r1 = await rodarVarredura("varredura forçada");
+    ok(r1.fim.forcada && r1.viuRodando, `(c) progresso "rodando" visto; fim: ${r1.fim.chats_total} chats, ${r1.fim.itens_enfileirados} itens`);
+    ok(r1.textoPainel !== "", `(c) painel mostrou "${r1.textoPainel}"`);
+    await print("varredura");
+    ok((await texto("varredura-progresso"))?.startsWith("Varredura concluída"), `(c) painel: "${await texto("varredura-progresso")}"`);
+    ok(Date.parse(r1.fim.desde) <= Date.now() - 29 * DIA * 1000, `(c) forçada usa só o limite de 30 dias (desde ${r1.fim.desde})`);
+    // Chats individuais no histórico falso: CONTATO, A, B, V1, V2, V3 (o grupo fica de fora).
+    ok(r1.fim.chats_total === 6, `(c) ${r1.fim.chats_total} chats individuais varridos (grupo de fora)`);
+    if (db) {
+      const v1 = await contarV();
+      ok(v1 === 6, `(c) banco: 6 mensagens dos 3 chats da varredura (${v1})`);
+      const [{ c: velhas }] = await consultar(
+        "select count(*)::int c from mensagens where wa_msg_id = any($1::text[])",
+        [[`false_${V[0]}_V${SUFIXO}11`, `false_${V[1]}_V${SUFIXO}21`, `false_${GRUPO}_V${SUFIXO}G1`]],
+      );
+      ok(velhas === 0, "(c) banco: nada com mais de 30 dias nem do grupo");
+      const totalDepois = (await consultar("select count(*)::int c from mensagens"))[0].c;
+      // Novas: as 6 dos chats V e a "boa tarde" do contato A (histórico local de 5 dias, que a escuta
+      // ao vivo nunca viu). As já enviadas ao vivo não duplicam.
+      ok(totalDepois === totalAntes + 7, `(c) banco: só as 7 novas entraram (${totalAntes} -> ${totalDepois}); as já enviadas não duplicaram`);
+      const [{ t: t31 }] = await consultar("select texto_abertura t from mensagens where wa_msg_id = $1", [`false_${V[2]}_V${SUFIXO}31`]);
+      ok(t31 === "primeira mensagem", `(c) abertura de conversa pelo histórico: texto_abertura "${t31}"`);
+      const [{ t: t14 }] = await consultar("select texto_abertura t from mensagens where wa_msg_id = $1", [`false_${V[0]}_V${SUFIXO}14`]);
+      ok(t14 === null, "(c) mensagem no meio da conversa sem padrão: texto_abertura null");
+
+      const r2 = await rodarVarredura("segunda varredura");
+      const totalFinal = (await consultar("select count(*)::int c from mensagens"))[0].c;
+      ok(totalFinal === totalDepois && (await contarV()) === 6, `(c) rodar de novo não duplica (${r2.fim.itens_enfileirados} itens reenviados, banco com ${totalFinal})`);
+    }
+
+    // ---- Etapa 8: painel ----
+    ok((await texto("rejeitados")) === "0", "painel: rejeitados 0");
+    ok((await texto("nome-computador"))?.length > 0, `painel: "Este computador" = "${await texto("nome-computador")}"`);
 
     await print("final");
     ok(errosPainel.length === 0, `sem erros no painel ${errosPainel.length ? JSON.stringify(errosPainel) : ""}`);

@@ -38,6 +38,10 @@ export const CHAVES_STORAGE = {
   token: "token",
   /** Por número monitorado: maior enviada_em já aceito pelo servidor (ISO). */
   checkpoint: "checkpoint",
+  /** Modo descoberta (Etapa 5): true liga o log de diagnóstico no console da aba do WhatsApp. */
+  descoberta: "piolho_descoberta",
+  /** Nome deste computador (só informativo, local; o heartbeat não usa). */
+  nomeComputador: "nomeComputador",
 } as const;
 
 /**

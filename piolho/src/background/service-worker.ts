@@ -7,16 +7,28 @@
 // - Mensagem `config` do painel (ou mudança no chrome.storage.local): relê URL e token, limpa o
 //   "token inválido" e o backoff, e manda um heartbeat na hora.
 // - Responde ao painel: `obter_estado` (estado da aba + StatusPiolho) e `heartbeat_agora`.
-// TODO Etapa 7: `varredura` (pedido ao MAIN world desde o checkpoint).
+// - Etapa 6: publica os `padroes` do heartbeat para as abas (chrome.tabs.sendMessage -> content
+//   script -> MAIN world) depois de cada heartbeat e quando a aba pede (`obter_padroes`).
+// - Etapa 7: coordena a varredura. Manda `varredura` fase `pedido` para a aba (automática depois do
+//   primeiro heartbeat da aba, a cada 6 h, ou "Forçar varredura" do painel), guarda o progresso em
+//   chrome.storage.session e expõe no `obter_estado`. Uma varredura por vez. O checkpoint continua
+//   avançando só com os aceitos do servidor (envio.ts); a varredura não mexe nele.
 import { lerToken, lerUrlSistema } from "../shared/armazenamento";
 import { ALARM_TICK, BUILD_DEV, CHAVES_STORAGE, URL_WHATSAPP } from "../shared/config";
 import {
+  LIMITES,
+  estadoVarreduraSchema,
   estadoWhatsappSchema,
+  montarMensagem,
   validarMensagem,
+  type EstadoVarredura,
   type EstadoWhatsapp,
+  type MensagemPonte,
+  type ProgressoVarredura,
   type RespostaObterEstado,
   type StatusPiolho,
 } from "../shared/protocol";
+import { INTERVALO_VARREDURA_AUTO_MS, VARREDURA_SEM_SINAL_MS, desdeDoPedido } from "../shared/varredura";
 import { enviarHeartbeat, enviarLote, type ConfigApi } from "./api";
 import { avancarCheckpoint, lerCheckpoint } from "./checkpoint";
 import { Enviador } from "./envio";
@@ -171,8 +183,20 @@ async function montarStatus(): Promise<StatusPiolho> {
   ]);
   let pendentes = 0;
   let rejeitados = 0;
+  let ultimosRejeitados: StatusPiolho["ultimos_rejeitados"] = [];
   try {
-    [pendentes, rejeitados] = await Promise.all([fila.tamanho(numero ?? undefined), fila.totalRejeitados()]);
+    const [p, r, lista] = await Promise.all([
+      fila.tamanho(numero ?? undefined),
+      fila.totalRejeitados(),
+      fila.listarRejeitados(LIMITES.rejeitadosPainel),
+    ]);
+    pendentes = p;
+    rejeitados = r;
+    ultimosRejeitados = lista.map((x) => ({
+      wa_msg_id: x.wa_msg_id.slice(0, LIMITES.waMsgId),
+      motivo: x.motivo.slice(0, LIMITES.mensagemErro),
+      rejeitado_em: new Date(x.rejeitado_em).toISOString(),
+    }));
   } catch (erro) {
     console.warn("[PIOLHO] não consegui ler a fila", erro);
   }
@@ -190,6 +214,9 @@ async function montarStatus(): Promise<StatusPiolho> {
     ultimo_erro: est.ultimo_erro,
     proximo_envio_em: est.proximo_envio_em,
     checkpoint: numero ? await lerCheckpoint(numero) : null,
+    padroes_texto: est.padroes_texto.slice(0, LIMITES.padroes).map((p) => p.slice(0, LIMITES.padrao)),
+    ultimos_rejeitados: ultimosRejeitados,
+    varredura: comInterrupcao(await lerVarredura()),
   };
 }
 
@@ -197,14 +224,205 @@ async function montarStatus(): Promise<StatusPiolho> {
 // Tick (alarm), envio agendado e configuração
 // ---------------------------------------------------------------------------
 
+/**
+ * Heartbeat e, se deu certo: publica os padrões para as abas e confere a varredura automática
+ * (primeira depois de a aba ficar pronta, e de novo a cada 6 h).
+ */
+async function heartbeat(numero: string): Promise<void> {
+  const r = await enviador.heartbeat(numero);
+  if (r?.tipo !== "ok") return;
+  await publicarPadroesParaAbas();
+  await conferirVarreduraAutomatica(numero);
+}
+
 /** Heartbeat (se passou 1 min) e esvaziar a fila (se o backoff permitir). */
 async function tick(opcoes: { ignorarBackoff?: boolean } = {}): Promise<void> {
   const numero = await numeroPronto();
   if (!numero) return;
   const est = await estadoExecucao.ler();
   const ultimo = est.ultimo_heartbeat_em ? Date.parse(est.ultimo_heartbeat_em) : 0;
-  if (Date.now() - ultimo >= INTERVALO_HEARTBEAT_MS) await enviador.heartbeat(numero);
+  if (Date.now() - ultimo >= INTERVALO_HEARTBEAT_MS) await heartbeat(numero);
   await enviador.esvaziarFila(numero, opcoes);
+}
+
+// ---------------------------------------------------------------------------
+// Ponte de volta para a aba (Etapas 6 e 7): service worker -> content script -> MAIN world
+// ---------------------------------------------------------------------------
+
+async function enviarParaAba(abaId: number, msg: MensagemPonte): Promise<boolean> {
+  try {
+    await chrome.tabs.sendMessage(abaId, msg);
+    return true;
+  } catch {
+    // Aba fechada, recarregando ou sem content script (extensão recarregada).
+    return false;
+  }
+}
+
+async function publicarPadroes(abaId: number): Promise<void> {
+  const { padroes_texto } = await estadoExecucao.ler();
+  const lista = padroes_texto.slice(0, LIMITES.padroes).filter((p) => p.length <= LIMITES.padrao);
+  await enviarParaAba(abaId, montarMensagem("padroes", "service_worker", { padroes_texto: lista }));
+}
+
+async function publicarPadroesParaAbas(): Promise<void> {
+  await abasRestauradas;
+  await Promise.all([...estadosPorAba.keys()].map((abaId) => publicarPadroes(abaId)));
+}
+
+// ---------------------------------------------------------------------------
+// Varredura (Etapa 7)
+// ---------------------------------------------------------------------------
+
+const CHAVE_VARREDURA = "varredura";
+/** Por aba: número para o qual a varredura automática de início já foi pedida. */
+const CHAVE_VARREDURA_AUTO = "varredura_auto";
+
+async function lerVarredura(): Promise<EstadoVarredura | null> {
+  try {
+    const dados = await chrome.storage.session.get(CHAVE_VARREDURA);
+    const r = estadoVarreduraSchema.safeParse(dados[CHAVE_VARREDURA]);
+    return r.success ? r.data : null;
+  } catch {
+    return null;
+  }
+}
+
+async function gravarVarredura(v: EstadoVarredura): Promise<void> {
+  await chrome.storage.session.set({ [CHAVE_VARREDURA]: v }).catch(() => undefined);
+}
+
+/** Varredura "pedida" ou "rodando" sem notícia há mais de 2 min: interrompida. */
+function comInterrupcao(v: EstadoVarredura | null, agora: number = Date.now()): EstadoVarredura | null {
+  if (!v || (v.situacao !== "pedida" && v.situacao !== "rodando")) return v;
+  if (agora - Date.parse(v.atualizada_em) <= VARREDURA_SEM_SINAL_MS) return v;
+  return { ...v, situacao: "erro", chat_atual: null, erro: "Varredura interrompida: a aba do WhatsApp parou de responder." };
+}
+
+function emAndamento(v: EstadoVarredura | null): boolean {
+  const atual = comInterrupcao(v);
+  return !!atual && (atual.situacao === "pedida" || atual.situacao === "rodando");
+}
+
+async function lerAutoFeitas(): Promise<Record<string, string>> {
+  try {
+    const v: unknown = (await chrome.storage.session.get(CHAVE_VARREDURA_AUTO))[CHAVE_VARREDURA_AUTO];
+    return v && typeof v === "object" ? (v as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function marcarAuto(abaId: number, numero: string | null): Promise<void> {
+  const mapa = await lerAutoFeitas();
+  if (numero === null) delete mapa[String(abaId)];
+  else mapa[String(abaId)] = numero;
+  await chrome.storage.session.set({ [CHAVE_VARREDURA_AUTO]: mapa }).catch(() => undefined);
+}
+
+/** Aba pronta (WPP pronto e número conhecido) mais recente, com o número. */
+async function abaPronta(): Promise<{ abaId: number; numero: string } | null> {
+  await abasRestauradas;
+  const agora = Date.now();
+  let melhor: [number, EstadoDaAba] | null = null;
+  for (const par of estadosPorAba) {
+    if (abaEstaPronta(par[1], agora) && (melhor === null || par[1].recebidoEm > melhor[1].recebidoEm)) melhor = par;
+  }
+  return melhor ? { abaId: melhor[0], numero: melhor[1].estado.numero_proprio as string } : null;
+}
+
+/**
+ * Pede a varredura à aba pronta. Normal: desde = maior entre checkpoint local e
+ * ultimo_sync_servidor. Forçada: desde = null (o MAIN world usa só o limite de 30 dias).
+ * Devolve null se pediu, ou o motivo de não ter pedido.
+ */
+async function pedirVarredura(forcada: boolean): Promise<string | null> {
+  const aba = await abaPronta();
+  if (!aba) return "Abra o WhatsApp Web e aguarde a conexão.";
+  if (emAndamento(await lerVarredura())) return "Já existe uma varredura em andamento.";
+  const est = await estadoExecucao.ler();
+  const desde = desdeDoPedido(await lerCheckpoint(aba.numero), est.ultimo_sync_servidor, forcada);
+  const agoraIso = new Date().toISOString();
+  await gravarVarredura({
+    aba_id: aba.abaId,
+    situacao: "pedida",
+    forcada,
+    desde,
+    iniciada_em: agoraIso,
+    atualizada_em: agoraIso,
+    chats_total: 0,
+    chats_processados: 0,
+    itens_enfileirados: 0,
+    chat_atual: null,
+    erro: null,
+  });
+  // Os padrões vão antes, para a regra do texto_abertura da varredura já usá-los.
+  await publicarPadroes(aba.abaId);
+  const ok = await enviarParaAba(aba.abaId, montarMensagem("varredura", "service_worker", { fase: "pedido", desde, forcada }));
+  if (!ok) {
+    await gravarVarredura({
+      aba_id: aba.abaId,
+      situacao: "erro",
+      forcada,
+      desde,
+      iniciada_em: agoraIso,
+      atualizada_em: new Date().toISOString(),
+      chats_total: 0,
+      chats_processados: 0,
+      itens_enfileirados: 0,
+      chat_atual: null,
+      erro: "Não consegui falar com a aba do WhatsApp. Recarregue a aba.",
+    });
+    return "Não consegui falar com a aba do WhatsApp. Recarregue a aba.";
+  }
+  return null;
+}
+
+/** Depois de um heartbeat: varredura de início da aba (uma vez) e a cada 6 h. */
+async function conferirVarreduraAutomatica(numero: string): Promise<void> {
+  const aba = await abaPronta();
+  if (!aba || aba.numero !== numero) return;
+  const atual = comInterrupcao(await lerVarredura());
+  if (emAndamento(atual)) return;
+  const feitas = await lerAutoFeitas();
+  if (feitas[String(aba.abaId)] !== numero) {
+    await marcarAuto(aba.abaId, numero);
+    const motivo = await pedirVarredura(false);
+    if (motivo) console.warn("[PIOLHO] varredura de início não pedida:", motivo);
+    return;
+  }
+  const ultima = atual?.situacao === "concluida" ? Date.parse(atual.atualizada_em) : null;
+  if (ultima !== null && Date.now() - ultima >= INTERVALO_VARREDURA_AUTO_MS) {
+    const motivo = await pedirVarredura(false);
+    if (motivo) console.warn("[PIOLHO] varredura de 6 h não pedida:", motivo);
+  }
+}
+
+/** Progresso vindo da aba. */
+async function registrarProgresso(abaId: number, p: ProgressoVarredura): Promise<void> {
+  const atual = await lerVarredura();
+  const agoraIso = new Date().toISOString();
+  const situacao: EstadoVarredura["situacao"] = p.cancelada
+    ? "cancelada"
+    : p.concluida
+      ? "concluida"
+      : p.erro
+        ? "erro"
+        : "rodando";
+  const mesma = atual !== null && atual.aba_id === abaId;
+  await gravarVarredura({
+    aba_id: abaId,
+    situacao,
+    forcada: mesma ? atual.forcada : false,
+    desde: p.desde,
+    iniciada_em: mesma ? atual.iniciada_em : agoraIso,
+    atualizada_em: agoraIso,
+    chats_total: p.chats_total,
+    chats_processados: p.chats_processados,
+    itens_enfileirados: p.itens_enfileirados,
+    chat_atual: p.chat_atual,
+    erro: p.erro,
+  });
 }
 
 function executar(tarefa: Promise<unknown>, oQue: string): void {
@@ -254,7 +472,7 @@ function aoMudarConfig(): Promise<void> {
         });
         const numero = await numeroPronto();
         if (!numero) return;
-        await enviador.heartbeat(numero);
+        await heartbeat(numero);
         await enviador.esvaziarFila(numero);
       })();
       executar(tarefa, "configuração nova");
@@ -303,18 +521,30 @@ chrome.runtime.onMessage.addListener((bruta: unknown, sender, sendResponse) => {
       // Só do content script de uma aba do WhatsApp Web.
       if (msg.origem !== "content" || !ehAbaDoWhatsapp(sender)) return false;
       const abaId = sender.tab?.id as number;
-      const anterior = estadosPorAba.get(abaId);
-      const atual: EstadoDaAba = { estado: msg.payload, recebidoEm: Date.now() };
-      estadosPorAba.set(abaId, atual);
-      persistirAbas();
-      // Ficou pronta agora (ou trocou de conta): heartbeat e envio sem esperar o alarm.
-      const ficouPronta =
-        abaEstaPronta(atual) &&
-        (!anterior ||
-          !anterior.estado.wpp_pronto ||
-          !anterior.estado.autenticado ||
-          anterior.estado.numero_proprio !== atual.estado.numero_proprio);
-      if (ficouPronta) executar(tick(), "início da aba");
+      const payload = msg.payload;
+      executar(
+        (async () => {
+          // Espera o estado restaurado: com o worker recém-acordado, "sem anterior" seria falso e
+          // a varredura de início rodaria de novo à toa.
+          await abasRestauradas;
+          const anterior = estadosPorAba.get(abaId);
+          const atual: EstadoDaAba = { estado: payload, recebidoEm: Date.now() };
+          estadosPorAba.set(abaId, atual);
+          persistirAbas();
+          // Ficou pronta agora (ou trocou de conta): heartbeat e envio sem esperar o alarm.
+          const ficouPronta =
+            abaEstaPronta(atual) &&
+            (!anterior ||
+              !anterior.estado.wpp_pronto ||
+              !anterior.estado.autenticado ||
+              anterior.estado.numero_proprio !== atual.estado.numero_proprio);
+          if (!ficouPronta) return;
+          // Aba (re)carregada ou conta trocada: a varredura de início vale de novo para ela.
+          await marcarAuto(abaId, null);
+          await tick();
+        })(),
+        "estado da aba",
+      );
       return false;
     }
     case "mensagem_nova": {
@@ -343,7 +573,7 @@ chrome.runtime.onMessage.addListener((bruta: unknown, sender, sendResponse) => {
       if (msg.origem !== "painel" || !ehPaginaDaExtensao(sender)) return false;
       return responderDepois(sendResponse, async () => {
         const numero = await numeroPronto();
-        if (numero) await enviador.heartbeat(numero);
+        if (numero) await heartbeat(numero);
         return montarStatus();
       });
     }
@@ -355,8 +585,36 @@ chrome.runtime.onMessage.addListener((bruta: unknown, sender, sendResponse) => {
         return montarStatus();
       });
     }
+    case "obter_padroes": {
+      if (msg.origem !== "content" || !ehAbaDoWhatsapp(sender)) return false;
+      executar(publicarPadroes(sender.tab?.id as number), "publicar padrões");
+      return false;
+    }
+    case "varredura": {
+      const p = msg.payload;
+      if (p.fase === "progresso") {
+        if (msg.origem !== "content" || !ehAbaDoWhatsapp(sender)) return false;
+        executar(registrarProgresso(sender.tab?.id as number, p), "progresso da varredura");
+        return false;
+      }
+      if (msg.origem !== "painel" || !ehPaginaDaExtensao(sender)) return false;
+      if (p.fase === "pedido") {
+        // Botão "Forçar varredura": só o limite de 30 dias (ver README).
+        return responderDepois(sendResponse, async () => {
+          const motivo = await pedirVarredura(p.forcada);
+          return { motivo, status: await montarStatus() };
+        });
+      }
+      // Cancelar: repassa para a aba da varredura atual.
+      return responderDepois(sendResponse, async () => {
+        const atual = await lerVarredura();
+        if (atual?.aba_id != null) {
+          await enviarParaAba(atual.aba_id, montarMensagem("varredura", "service_worker", { fase: "cancelar" }));
+        }
+        return { motivo: null, status: await montarStatus() };
+      });
+    }
     default:
-      // TODO Etapa 7: `varredura`.
       return false;
   }
 });

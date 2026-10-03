@@ -49,3 +49,39 @@ const NOMES_ERRO: Record<string, string> = {
 export function nomeErro(tipo: string): string {
   return NOMES_ERRO[tipo] ?? tipo;
 }
+
+/** "14:05" no fuso do computador. */
+export function formatarHora(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "?";
+  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+/** wa_msg_id abreviado para a lista de rejeitados: começo e fim, com reticências no meio. Pura. */
+export function abreviarId(id: string, inicio: number = 8, fim: number = 10): string {
+  return id.length <= inicio + fim + 3 ? id : `${id.slice(0, inicio)}...${id.slice(-fim)}`;
+}
+
+/** Texto do progresso: "Varrendo chat 12 de 40, 350 itens enfileirados". Pura. */
+export function textoProgressoVarredura(v: {
+  situacao: string;
+  chats_total: number;
+  chats_processados: number;
+  itens_enfileirados: number;
+}): string {
+  const itens = `${v.itens_enfileirados} ${v.itens_enfileirados === 1 ? "item enfileirado" : "itens enfileirados"}`;
+  switch (v.situacao) {
+    case "pedida":
+      return "Varredura pedida, aguardando o WhatsApp...";
+    case "rodando":
+      return v.chats_total === 0
+        ? "Listando as conversas..."
+        : `Varrendo chat ${Math.min(v.chats_processados + 1, v.chats_total)} de ${v.chats_total}, ${itens}`;
+    case "concluida":
+      return `Varredura concluída: ${v.chats_total} ${v.chats_total === 1 ? "chat" : "chats"}, ${itens}`;
+    case "cancelada":
+      return `Varredura cancelada em ${v.chats_processados} de ${v.chats_total} chats, ${itens}`;
+    default:
+      return `Varredura com erro em ${v.chats_processados} de ${v.chats_total} chats, ${itens}`;
+  }
+}

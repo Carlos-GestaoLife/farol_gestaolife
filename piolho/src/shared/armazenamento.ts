@@ -46,3 +46,34 @@ export async function salvarToken(token: string): Promise<void> {
 export async function removerToken(): Promise<void> {
   await chrome.storage.local.remove(CHAVES_STORAGE.token);
 }
+
+/** Nome deste computador (só informativo, local). Null se não configurado. */
+export async function lerNomeComputador(): Promise<string | null> {
+  try {
+    const valor: unknown = (await chrome.storage.local.get(CHAVES_STORAGE.nomeComputador))[CHAVES_STORAGE.nomeComputador];
+    if (typeof valor === "string" && valor.trim()) return valor.trim().slice(0, LIMITES.nomeComputador);
+  } catch (erro) {
+    console.warn("[PIOLHO] não consegui ler o nome do computador", erro);
+  }
+  return null;
+}
+
+/** Grava o nome (vazio remove). */
+export async function salvarNomeComputador(nome: string): Promise<void> {
+  const limpo = nome.trim().slice(0, LIMITES.nomeComputador);
+  if (limpo) await chrome.storage.local.set({ [CHAVES_STORAGE.nomeComputador]: limpo });
+  else await chrome.storage.local.remove(CHAVES_STORAGE.nomeComputador);
+}
+
+/** Modo descoberta ligado (Etapa 5, só diagnóstico). */
+export async function lerModoDescoberta(): Promise<boolean> {
+  try {
+    return (await chrome.storage.local.get(CHAVES_STORAGE.descoberta))[CHAVES_STORAGE.descoberta] === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function salvarModoDescoberta(ativo: boolean): Promise<void> {
+  await chrome.storage.local.set({ [CHAVES_STORAGE.descoberta]: ativo });
+}

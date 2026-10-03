@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  extrairCtwa,
   isoDeUnix,
   mapearTipo,
   montarItem,
@@ -164,5 +165,83 @@ describe("isoDeUnix", () => {
     expect(isoDeUnix("1790000000")).toBe("2026-09-21T14:13:20.000Z");
     expect(isoDeUnix(0)).toBeNull();
     expect(isoDeUnix("x")).toBeNull();
+  });
+});
+
+describe("extrairCtwa", () => {
+  /** Exemplo usado também na conferência com o servidor (extrairMetaAdIdDoCtwa). */
+  const CTWA_CONTEXT = {
+    conversionSource: "FB_Ads",
+    sourceId: "123456789",
+    sourceType: "ad",
+    sourceUrl: "https://fb.me/abcdef?ad_id=123456789&utm_source=x",
+    title: "Gestão na Veia Maceió",
+    description: "Imersão presencial",
+    mediaType: 1,
+    thumbnail: "/9j/4AAQSkZJRgABAQAAAQABAAD" + "A".repeat(500),
+    thumbnailUrl: "https://scontent.xx.fbcdn.net/x.jpg",
+    ctwaClid: "Afc123clique",
+    isSuspiciousLink: false,
+  };
+
+  it("caminho msg.ctwaContext: só os campos do anúncio, sem thumbnail nem id do clique", () => {
+    expect(extrairCtwa(msg({ ctwaContext: CTWA_CONTEXT }))).toEqual({
+      sourceId: "123456789",
+      sourceType: "ad",
+      sourceUrl: "https://fb.me/abcdef?ad_id=123456789&utm_source=x",
+      title: "Gestão na Veia Maceió",
+      description: "Imersão presencial",
+      mediaType: 1,
+      isSuspiciousLink: false,
+    });
+  });
+
+  it("caminho msg.contextInfo.externalAdReply (sem o body do anúncio)", () => {
+    const ctwa = extrairCtwa(
+      msg({
+        contextInfo: {
+          externalAdReply: {
+            source_id: "987654321",
+            source_type: "ad",
+            source_url: "https://www.instagram.com/p/xyz",
+            title: "Anúncio",
+            body: "texto do anúncio",
+            media_type: "IMAGE",
+            jpegThumbnail: "AAAA",
+            is_suspicious_link: true,
+          },
+          quotedMessage: { conversation: "segredo" },
+        },
+      }),
+    );
+    expect(ctwa).toEqual({
+      source_id: "987654321",
+      source_type: "ad",
+      source_url: "https://www.instagram.com/p/xyz",
+      title: "Anúncio",
+      media_type: "IMAGE",
+      is_suspicious_link: true,
+    });
+    expect(JSON.stringify(ctwa)).not.toContain("segredo");
+  });
+
+  it("os dois caminhos: ctwaContext tem preferência, campos ausentes vêm do externalAdReply", () => {
+    const ctwa = extrairCtwa(
+      msg({ ctwaContext: { sourceId: "111" }, contextInfo: { externalAdReply: { sourceId: "222", title: "T" } } }),
+    );
+    expect(ctwa).toEqual({ sourceId: "111", title: "T" });
+  });
+
+  it("sem contexto, contexto vazio ou só com campos proibidos: null", () => {
+    expect(extrairCtwa(msg({}))).toBeNull();
+    expect(extrairCtwa(msg({ ctwaContext: null, contextInfo: {} }))).toBeNull();
+    expect(extrairCtwa(msg({ ctwaContext: { thumbnail: "AAAA", ctwaClid: "x", sourceId: "  " } }))).toBeNull();
+    expect(extrairCtwa(msg({ ctwaContext: "texto" }))).toBeNull();
+  });
+
+  it("montarItem leva o ctwa", async () => {
+    const item = await montarItem(msg({ ctwaContext: CTWA_CONTEXT }), MEU, resolver);
+    expect(item?.ctwa?.sourceId).toBe("123456789");
+    expect(itemMensagemSchema.safeParse(item).success).toBe(true);
   });
 });

@@ -524,3 +524,85 @@ label {
   font-size: var(--fs-ui);
   line-height: 1.45;
 }
+
+/* Seção "Varredura" */
+.varredura {
+  display: flex;
+  flex-direction: column;
+  gap: var(--esp-2);
+}
+
+.varredura__texto {
+  margin: 0;
+  font-size: var(--fs-ui);
+  font-weight: var(--peso-medio);
+  color: var(--cor-texto);
+  font-variant-numeric: tabular-nums;
+}
+
+.barra {
+  height: 6px;
+  border-radius: var(--raio-pill);
+  background: var(--cor-neutro-fundo);
+  overflow: hidden;
+}
+
+.barra__preenchida {
+  display: block;
+  height: 100%;
+  background: var(--cor-blue);
+  border-radius: var(--raio-pill);
+  transition: width var(--dur-rapida) var(--ease-out);
+}
+
+/* Aviso amarelo (modo descoberta ligado) */
+.aviso-alerta {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--cor-aviso-borda);
+  border-radius: var(--raio-sm);
+  background: var(--cor-aviso-fundo);
+  color: var(--cor-aviso-texto);
+  font-size: var(--fs-ui);
+  line-height: 1.45;
+}
+
+/* Listas expansíveis (rejeitados e padrões) */
+.expansivel {
+  font-size: var(--fs-meta);
+  color: var(--cor-texto-2);
+}
+
+.expansivel summary {
+  cursor: pointer;
+  font-weight: var(--peso-semi);
+  color: var(--cor-texto-2);
+}
+
+.expansivel ul {
+  margin: var(--esp-2) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.expansivel li {
+  padding: 6px 8px;
+  border-radius: var(--raio-sm);
+  background: var(--cor-fundo);
+  overflow-wrap: anywhere;
+}
+
+.expansivel code {
+  font-family: var(--fonte-mono);
+  font-size: var(--fs-selo);
+  color: var(--cor-texto);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barra__preenchida {
+    transition: none;
+  }
+}

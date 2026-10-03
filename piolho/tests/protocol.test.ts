@@ -156,15 +156,18 @@ describe("envelope da ponte", () => {
     expect(
       validarMensagem(montarMensagem("mensagem_nova", "main", { item: ITEM, numero_monitorado: "5562999999999@c.us" })),
     ).toBeNull();
-    expect(validarMensagem(montarMensagem("varredura", "service_worker", { fase: "pedido", desde: null }))).not.toBeNull();
+    expect(validarMensagem(montarMensagem("varredura", "service_worker", { fase: "pedido", desde: null, forcada: true }))).not.toBeNull();
     expect(
       validarMensagem(
         montarMensagem("varredura", "main", {
           fase: "progresso",
+          desde: "2026-09-03T12:00:00.000Z",
           chats_total: 10,
           chats_processados: 3,
-          mensagens_enfileiradas: 42,
+          itens_enfileirados: 42,
+          chat_atual: "556288887777@c.us",
           concluida: false,
+          cancelada: false,
           erro: null,
         }),
       ),
@@ -174,6 +177,26 @@ describe("envelope da ponte", () => {
     ).not.toBeNull();
     expect(validarMensagem(montarMensagem("heartbeat_agora", "painel", null))).not.toBeNull();
     expect(validarMensagem(montarMensagem("tick_teste", "painel", null))).not.toBeNull();
+  });
+
+  it("Etapas 5 a 7: padroes, obter_padroes, descoberta e varredura (pedido, cancelar, progresso)", () => {
+    expect(validarMensagem(montarMensagem("padroes", "service_worker", { padroes_texto: ["a", "b"] }))).not.toBeNull();
+    expect(validarMensagem({ ...montarMensagem("padroes", "service_worker", { padroes_texto: [] }), payload: { padroes_texto: [1] } })).toBeNull();
+    expect(
+      validarMensagem({ ...montarMensagem("padroes", "service_worker", { padroes_texto: [] }), payload: { padroes_texto: ["x".repeat(LIMITES.padrao + 1)] } }),
+    ).toBeNull();
+    expect(validarMensagem(montarMensagem("obter_padroes", "main", null))).not.toBeNull();
+    expect(validarMensagem(montarMensagem("descoberta", "content", { ativo: true }))).not.toBeNull();
+    expect(validarMensagem({ ...montarMensagem("descoberta", "content", { ativo: true }), payload: { ativo: "sim" } })).toBeNull();
+    expect(validarMensagem(montarMensagem("varredura", "painel", { fase: "cancelar" }))).not.toBeNull();
+    // Pedido sem `forcada` e progresso com contador negativo ficam de fora.
+    expect(validarMensagem({ ...montarMensagem("varredura", "painel", { fase: "cancelar" }), payload: { fase: "pedido", desde: null } })).toBeNull();
+    expect(
+      validarMensagem({
+        ...montarMensagem("varredura", "main", { fase: "cancelar" }),
+        payload: { fase: "progresso", desde: null, chats_total: -1, chats_processados: 0, itens_enfileirados: 0, chat_atual: null, concluida: false, cancelada: false, erro: null },
+      }),
+    ).toBeNull();
   });
 
   it("a mensagem config nunca carrega o token", () => {

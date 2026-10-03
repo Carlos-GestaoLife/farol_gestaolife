@@ -15,7 +15,10 @@ import {
 } from "../shared/protocol";
 
 /** Tipos que o MAIN world pode publicar. */
-const TIPOS_PUBLICAVEIS = new Set<TipoMensagem>(["estado", "mensagem_nova", "varredura"]);
+const TIPOS_PUBLICAVEIS = new Set<TipoMensagem>(["estado", "mensagem_nova", "varredura", "obter_padroes"]);
+
+/** Tipos que o MAIN world aceita do content script. */
+const TIPOS_RECEBIVEIS = new Set<TipoMensagem>(["padroes", "descoberta", "varredura"]);
 
 /** Valida e publica uma mensagem para o content script. Devolve false se não passou no schema. */
 export function publicar<T extends TipoMensagem>(tipo: T, payload: PayloadDe<T>): boolean {
@@ -36,24 +39,22 @@ export function publicar<T extends TipoMensagem>(tipo: T, payload: PayloadDe<T>)
 export function filtrarRecebida(fonte: unknown, janela: unknown, dado: unknown): MensagemPonte | null {
   if (fonte !== janela) return null;
   const msg = validarMensagem(dado);
-  if (msg === null || msg.origem !== "content") return null;
+  if (msg === null || msg.origem !== "content" || !TIPOS_RECEBIVEIS.has(msg.tipo)) return null;
+  // Progresso de varredura só sai do MAIN world; nunca entra.
+  if (msg.tipo === "varredura" && msg.payload.fase === "progresso") return null;
   return msg;
 }
 
-function tratar(msg: MensagemPonte): void {
-  switch (msg.tipo) {
-    case "varredura":
-      // TODO Etapa 7: com fase "pedido", rodar a varredura desde msg.payload.desde e publicar o
-      // progresso (tipo "varredura", fase "progresso") e cada item (tipo "mensagem_nova").
-      return;
-    default:
-      return;
-  }
-}
+/** Quem trata o que chega do content script (definido em index.ts). */
+export type TratadorPonte = (msg: MensagemPonte) => void;
 
 let iniciada = false;
 
-export function iniciarPonteMain(): void {
+/**
+ * Liga a escuta da ponte. O que chega (já validado e só do content script): `padroes`,
+ * `descoberta` e `varredura` (pedido ou cancelar). O tratamento fica em index.ts.
+ */
+export function iniciarPonteMain(tratar: TratadorPonte): void {
   if (iniciada) return;
   iniciada = true;
   window.addEventListener("message", (event: MessageEvent) => {

@@ -35,6 +35,11 @@ export const LIMITES = {
   // Configuração.
   url: 500,
   token: 500,
+  nomeComputador: 80,
+  // Padrões de texto (heartbeat) repassados ao MAIN world.
+  padrao: 500,
+  padroes: 500,
+  rejeitadosPainel: 20,
 } as const;
 
 /** Mesmos valores do enum tipo_midia do servidor (sistema-leads/src/db/schema/enums.ts). */
@@ -85,9 +90,9 @@ export const itemMensagemSchema = z.object({
   enviada_em: dataIso,
   tipo_midia: z.enum(TIPOS_MIDIA),
   contato: contatoSchema,
-  /** Só quando a mensagem recebida abre conversa ou casa com padroes_texto (regra na Etapa 6). */
+  /** Só quando a mensagem recebida abre conversa ou casa com padroes_texto (src/main-world/abertura.ts). */
   texto_abertura: z.string().max(LIMITES.textoAbertura).nullable(),
-  /** Contexto do anúncio de clique para WhatsApp. Campos a confirmar na Etapa 5 (docs/CTWA.md). */
+  /** Contexto do anúncio de clique para WhatsApp, só com os campos do anúncio (extrairCtwa, docs/CTWA.md). */
   ctwa: z.record(z.string(), z.unknown()).nullable(),
 });
 
@@ -150,7 +155,7 @@ export const estadoWhatsappSchema = z.object({
 export type EstadoWhatsapp = z.infer<typeof estadoWhatsappSchema>;
 
 /**
- * Mensagem nova capturada ao vivo (Etapa 4) ou na varredura (TODO Etapa 7). Leva o número da conta
+ * Mensagem nova capturada ao vivo (Etapa 4) ou na varredura (Etapa 7). Leva o número da conta
  * logada no momento da captura: é ele que compõe a chave da fila (numero:wa_msg_id) e o
  * numero_monitorado do lote, mesmo que a conta da aba mude depois.
  */
@@ -161,24 +166,78 @@ export const mensagemNovaSchema = z.object({
 
 export type MensagemNova = z.infer<typeof mensagemNovaSchema>;
 
-/** Varredura desde o checkpoint. TODO Etapa 7. */
+/**
+ * Varredura desde o checkpoint (Etapa 7).
+ * - `pedido` (service worker -> content -> MAIN world): `desde` é o maior entre o checkpoint local
+ *   e ultimo_sync_servidor (null quando forçada); o MAIN world ainda aplica o limite de 30 dias.
+ * - `cancelar` (painel -> service worker -> content -> MAIN world).
+ * - `progresso` (MAIN world -> content -> service worker): contadores da varredura em andamento.
+ */
 export const varreduraSchema = z.discriminatedUnion("fase", [
   z.object({
     fase: z.literal("pedido"),
-    /** Checkpoint: carregar mensagens depois deste instante (limite de 30 dias aplicado no MAIN world). */
     desde: dataIso.nullable(),
+    /** "Forçar varredura" do painel: ignora o checkpoint e usa só o limite de 30 dias. */
+    forcada: z.boolean(),
   }),
+  z.object({ fase: z.literal("cancelar") }),
   z.object({
     fase: z.literal("progresso"),
+    /** Checkpoint efetivo usado (já com o limite de 30 dias). */
+    desde: dataIso.nullable(),
     chats_total: z.number().int().min(0),
     chats_processados: z.number().int().min(0),
-    mensagens_enfileiradas: z.number().int().min(0),
+    itens_enfileirados: z.number().int().min(0),
+    /** Chat sendo lido agora (id do WhatsApp), ou null. */
+    chat_atual: z.string().max(LIMITES.chatId).nullable(),
     concluida: z.boolean(),
+    cancelada: z.boolean(),
     erro: textoErro.nullable(),
   }),
 ]);
 
 export type Varredura = z.infer<typeof varreduraSchema>;
+export type ProgressoVarredura = Extract<Varredura, { fase: "progresso" }>;
+
+/** Padrões de texto do heartbeat, publicados pelo service worker para a aba (Etapa 6). */
+export const padroesSchema = z.object({
+  padroes_texto: z.array(z.string().max(LIMITES.padrao)).max(LIMITES.padroes),
+});
+
+export type Padroes = z.infer<typeof padroesSchema>;
+
+/** Modo descoberta (Etapa 5): content script -> MAIN world, lido de chrome.storage.local. */
+export const descobertaSchema = z.object({ ativo: z.boolean() });
+
+export type Descoberta = z.infer<typeof descobertaSchema>;
+
+/** Situação da varredura guardada pelo service worker (chrome.storage.session), para o painel. */
+export const SITUACOES_VARREDURA = ["pedida", "rodando", "concluida", "cancelada", "erro"] as const;
+
+export const estadoVarreduraSchema = z.object({
+  aba_id: z.number().int().nullable(),
+  situacao: z.enum(SITUACOES_VARREDURA),
+  forcada: z.boolean(),
+  desde: dataIso.nullable(),
+  iniciada_em: dataIso,
+  atualizada_em: dataIso,
+  chats_total: z.number().int().min(0),
+  chats_processados: z.number().int().min(0),
+  itens_enfileirados: z.number().int().min(0),
+  chat_atual: z.string().max(LIMITES.chatId).nullable(),
+  erro: textoErro.nullable(),
+});
+
+export type EstadoVarredura = z.infer<typeof estadoVarreduraSchema>;
+
+/** Um item recusado pelo servidor, resumido para o painel. */
+export const rejeitadoResumoSchema = z.object({
+  wa_msg_id: z.string().max(LIMITES.waMsgId),
+  motivo: z.string().max(LIMITES.mensagemErro),
+  rejeitado_em: dataIso,
+});
+
+export type RejeitadoResumo = z.infer<typeof rejeitadoResumoSchema>;
 
 /**
  * Aviso do painel ao service worker de que a configuração mudou. O token NÃO viaja aqui: o service
@@ -226,6 +285,12 @@ export const statusPiolhoSchema = z.object({
   proximo_envio_em: dataIso.nullable(),
   /** Maior enviada_em aceito pelo servidor para o número atual. */
   checkpoint: dataIso.nullable(),
+  /** Padrões de texto recebidos no último heartbeat. */
+  padroes_texto: z.array(z.string().max(LIMITES.padrao)).max(LIMITES.padroes),
+  /** Últimos rejeitados (mais recentes primeiro), no máximo 20. */
+  ultimos_rejeitados: z.array(rejeitadoResumoSchema).max(LIMITES.rejeitadosPainel),
+  /** Varredura atual ou a última, ou null. */
+  varredura: estadoVarreduraSchema.nullable(),
 });
 
 export type StatusPiolho = z.infer<typeof statusPiolhoSchema>;
@@ -259,6 +324,12 @@ export const mensagemPonteSchema = z.discriminatedUnion("tipo", [
   z.object({ ...envelope, tipo: z.literal("estado"), payload: estadoWhatsappSchema }),
   z.object({ ...envelope, tipo: z.literal("mensagem_nova"), payload: mensagemNovaSchema }),
   z.object({ ...envelope, tipo: z.literal("varredura"), payload: varreduraSchema }),
+  /** Service worker -> aba: padrões de texto atuais (depois de cada heartbeat e quando a aba pede). */
+  z.object({ ...envelope, tipo: z.literal("padroes"), payload: padroesSchema }),
+  /** MAIN world -> service worker: pede os padrões (e o content script devolve o modo descoberta). */
+  z.object({ ...envelope, tipo: z.literal("obter_padroes"), payload: z.null() }),
+  /** Content script -> MAIN world: liga ou desliga o modo descoberta. */
+  z.object({ ...envelope, tipo: z.literal("descoberta"), payload: descobertaSchema }),
   z.object({ ...envelope, tipo: z.literal("config"), payload: configSchema }),
   z.object({ ...envelope, tipo: z.literal("obter_estado"), payload: z.null() }),
   /** Botão "Enviar heartbeat agora" do painel. Resposta: StatusPiolho. */

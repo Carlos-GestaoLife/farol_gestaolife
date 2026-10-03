@@ -1,7 +1,8 @@
-// Seção "Envio ao sistema": heartbeat, sincronização, fila, rejeitados, último envio e erro atual.
+// Seção "Envio ao sistema": computador, heartbeat, sincronização, padrões, fila, rejeitados (com a
+// lista dos últimos 20), último envio, próxima tentativa e erro atual.
 import { useCallback, useEffect, useState } from "react";
 import type { StatusPiolho } from "../../shared/protocol";
-import { formatarDataHora, nomeErro, tempoRelativo } from "../formatacao";
+import { abreviarId, formatarDataHora, formatarHora, nomeErro, tempoRelativo } from "../formatacao";
 import { heartbeatAgora } from "../ponte";
 
 function Linha({ rotulo, valor, testid }: { rotulo: string; valor: string; testid: string }) {
@@ -28,9 +29,11 @@ function useAgora(): number {
 export function Envio({
   status,
   definirStatus,
+  nomeComputador,
 }: {
   status: StatusPiolho | null;
   definirStatus: (s: StatusPiolho) => void;
+  nomeComputador: string | null;
 }) {
   const agora = useAgora();
   const [enviando, setEnviando] = useState(false);
@@ -82,6 +85,11 @@ export function Envio({
 
       <dl className="dados">
         <Linha
+          rotulo="Este computador"
+          testid="nome-computador"
+          valor={nomeComputador ?? "sem nome (opcional, abaixo)"}
+        />
+        <Linha
           rotulo="Último heartbeat"
           testid="ultimo-heartbeat"
           valor={status.ultimo_heartbeat_em ? tempoRelativo(status.ultimo_heartbeat_em, agora) : "nunca"}
@@ -111,12 +119,39 @@ export function Envio({
         />
         {emBackoff && status.proximo_envio_em ? (
           <Linha
-            rotulo="Nova tentativa"
+            rotulo="Próxima tentativa"
             testid="proximo-envio"
-            valor={tempoRelativo(status.proximo_envio_em, agora)}
+            valor={`às ${formatarHora(status.proximo_envio_em)} (${tempoRelativo(status.proximo_envio_em, agora)})`}
           />
         ) : null}
       </dl>
+
+      {status.padroes_texto.length > 0 ? (
+        <details className="expansivel" data-testid="lista-padroes">
+          <summary>Padrões recebidos ({status.padroes_texto.length})</summary>
+          <ul>
+            {status.padroes_texto.map((p, i) => (
+              <li key={`${i}-${p}`}>{p}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+
+      {status.ultimos_rejeitados.length > 0 ? (
+        <details className="expansivel" data-testid="lista-rejeitados">
+          <summary>
+            Últimos rejeitados ({status.ultimos_rejeitados.length} de {status.rejeitados})
+          </summary>
+          <ul>
+            {status.ultimos_rejeitados.map((r, i) => (
+              <li key={`${i}-${r.wa_msg_id}`}>
+                <code title={r.wa_msg_id}>{abreviarId(r.wa_msg_id)}</code>: {r.motivo}{" "}
+                <span className="campo__dica">({tempoRelativo(r.rejeitado_em, agora)})</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
       {erro ? (
         <p className="retorno retorno--erro" role="alert" data-testid="ultimo-erro" data-tipo={erro.tipo}>

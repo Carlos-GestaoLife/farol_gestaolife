@@ -71,9 +71,10 @@ Documentação (Context7, `src/whatsapp/models/MsgModel.ts`): `id: MsgKey`, `typ
 | `notifyName` | `pushname` da recebida quando o contato não tem | MsgModel.ts |
 | `isStatusV3` | descartar status | `.isStatusV3` aparece 6 vezes no bundle |
 
-O corpo (`body`) NÃO é lido. `texto_abertura` e `ctwa` saem `null` até a Etapa 6 (os campos do
-anúncio só entram depois de confirmados na Etapa 5, em `docs/CTWA.md`; `ctwaContext` não aparece no
-bundle, então vem do próprio objeto do WhatsApp).
+O corpo (`body`) só é lido pela regra do `texto_abertura` (Etapa 6, `src/main-world/abertura.ts`)
+e só sai quando a mensagem recebida de texto abre conversa ou casa com um padrão. Os campos do
+anúncio (`ctwaContext`, `contextInfo.externalAdReply`) NÃO aparecem no bundle do wa-js: vêm do
+próprio objeto do WhatsApp e estão em `docs/CTWA.md`, com o que falta confirmar no WhatsApp real.
 
 ### `WPP.contact.get(id)` (ContactModel)
 
@@ -82,6 +83,45 @@ byte 291282 `isMyContact:u.functions.getIsMyContact` e byte 292181
 `formattedName:u.functions.getFormattedName`. `nome_agenda` = `name` (só existe para contato salvo)
 ou, se `isMyContact`, `formattedName`; contato não salvo vai com `nome_agenda: null` (o
 `formattedName` dele é o telefone formatado).
+
+## Etapas 6 e 7 (histórico do chat e varredura)
+
+Todas em `src/main-world/adapter.ts`. Exports do namespace `chat` (byte 169073 e 168082):
+`var A=r(88241);Object.defineProperty(t,"list"` e `var M=r(48769);Object.defineProperty(t,"getMessages"`.
+
+### `WPP.chat.list({ onlyUsers: true })`
+
+Usada por `listarChatsIndividuais` (varredura).
+
+- Byte 174152: `t.list=async function(e={}){const t=null==e.count?1/0:e.count` (sem `count`, devolve
+  todas as conversas da `ChatStore`).
+- Byte 174359: `e.onlyUsers&&(i=i.filter(e=>e.isUser))` (tira grupos; o piolho filtra de novo por
+  sufixo, `@c.us` e `@lid`, porque status, canais e listas de transmissão também precisam sair).
+- Documentação (Context7, `_autodocs/api-reference/chat.md`): `list(options?: ChatListOptions):
+  ChatModel[]`, exemplo `WPP.chat.list({ count: 100 })`.
+- Última atividade do chat: `ChatModel.t` (unix em segundos), com `timestamp` como reserva (a doc
+  de tipos do wa-js chama de `timestamp`; o modelo do WhatsApp guarda `t`). Chat sem data entra na
+  varredura por segurança. Campo a confirmar no WhatsApp real (docs/CTWA.md).
+
+### `WPP.chat.getMessages(chatId, { count, direction, id })`
+
+Usada por `carregarMensagensDesde` (varredura) e `avaliarAberturaAoVivo` (regra (a) do
+`texto_abertura`).
+
+- Byte 158531: `t.getMessages=async function(e,t={})`; byte 158633:
+  `"after"===t.direction?"after":"before"` (padrão `before`); byte 158672:
+  `f=t.id||(null===(r=c.lastReceivedKey)...` (sem `id`, a âncora é a última mensagem RECEBIDA do
+  chat, e ela entra no resultado). Por isso o piolho, depois da primeira página, pede também
+  `direction: "after"` a partir da mais nova (respostas enviadas depois da última recebida).
+- Byte 160078: `y=await(0,s.msgFindQuery)(d,g)` (consulta ao armazenamento local do WhatsApp Web).
+- Byte 160405: `e instanceof i.MsgModel?e:i.MsgStore.get(e)||new i.MsgModel(e)` (devolve `MsgModel`,
+  com os mesmos campos da escuta ao vivo).
+- Documentação (Context7): `getMessages(chatId, { count?: number (-1 = todas), direction?: 'after' |
+  'before', id?: string, ... }): Promise<RawMessage[]>`, exemplo
+  `WPP.chat.getMessages('[number]@c.us', { count: 20 })`.
+- Página vazia em `before` = fim do histórico LOCAL. Se o WhatsApp Web busca no celular mensagens
+  mais antigas que as sincronizadas, e quanto histórico existe localmente depois de dias fechado, é
+  item da Etapa 5 (docs/CTWA.md).
 
 ## Filtros aplicados (extracao.ts)
 

@@ -7,10 +7,14 @@
 // - from / to (Wid com _serialized, ou string);
 // - t (unix em segundos);
 // - type (tipo da mensagem do WhatsApp);
-// - notifyName (pushname de quem mandou, só nas recebidas).
-// Só metadados: o corpo (`body`) NÃO é lido aqui. texto_abertura e ctwa ficam null nesta etapa.
+// - notifyName (pushname de quem mandou, só nas recebidas);
+// - ctwaContext e contextInfo.externalAdReply (contexto do anúncio, ver docs/CTWA.md).
+// Só metadados. O corpo (`body`) só é lido pela regra do texto_abertura (abertura.ts), e só sai
+// quando a mensagem recebida de texto abre conversa ou casa com um padrão do heartbeat.
 import { LIMITES, type Contato, type ItemMensagem, type TipoMidia } from "../shared/protocol";
 import { classificarId, ehChatIndividual, extrairDigitos } from "../shared/phone";
+import { casaAlgumPadrao } from "../shared/texto";
+import { decidirTextoAbertura, precisaAvaliarAbertura, type Abertura } from "./abertura";
 
 /** Forma mínima (e frouxa) de uma mensagem do WhatsApp. Tudo opcional: o WhatsApp pode variar. */
 export interface MensagemBruta {
@@ -24,6 +28,11 @@ export interface MensagemBruta {
   isNotification?: unknown;
   isStatusV3?: unknown;
   broadcast?: unknown;
+  /** Texto da mensagem: lido só por decidirTextoAbertura. */
+  body?: unknown;
+  /** Contexto de anúncio de clique para WhatsApp (nome a confirmar no WhatsApp real, docs/CTWA.md). */
+  ctwaContext?: unknown;
+  contextInfo?: unknown;
 }
 
 /** Contato do chat (ContactModel do wa-js), forma frouxa. */
@@ -128,18 +137,100 @@ export function nomeAgenda(contato: ContatoBruto | undefined): string | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Contexto do anúncio (ctwa)
+// ---------------------------------------------------------------------------
+
+/**
+ * Campos do contexto do anúncio que podem sair, nas duas grafias (o WhatsApp Web usa camelCase; o
+ * servidor aceita as duas, ver extrairMetaAdIdDoCtwa em sistema-leads/src/nucleo/atribuicao.ts).
+ * Ficam de fora de propósito: thumbnails e mídia (base64), `body` do anúncio, `ctwaClid` (id do
+ * clique, não do anúncio) e qualquer outro campo.
+ */
+const CAMPOS_CTWA = [
+  "source_id",
+  "sourceId",
+  "source_type",
+  "sourceType",
+  "source_url",
+  "sourceUrl",
+  "title",
+  "description",
+  "media_type",
+  "mediaType",
+  "is_suspicious_link",
+  "isSuspiciousLink",
+] as const;
+
+/** Tamanho máximo de cada campo de texto do ctwa (a URL inteira carrega o ad_id). */
+const MAX_CAMPO_CTWA = 2000;
+
+function comoObjeto(v: unknown): Record<string, unknown> | null {
+  return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+
+/** Valor seguro de um campo do ctwa: texto curto, número finito ou booleano; o resto é descartado. */
+function valorCtwa(v: unknown): string | number | boolean | null {
+  if (typeof v === "string") {
+    const limpo = v.trim();
+    return limpo ? limpo.slice(0, MAX_CAMPO_CTWA) : null;
+  }
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "boolean") return v;
+  return null;
+}
+
+function copiarCampos(origem: Record<string, unknown> | null, destino: Record<string, unknown>): void {
+  if (!origem) return;
+  for (const campo of CAMPOS_CTWA) {
+    if (campo in destino) continue;
+    const v = valorCtwa(origem[campo]);
+    if (v !== null) destino[campo] = v;
+  }
+}
+
+/**
+ * Contexto do anúncio de clique para WhatsApp, só com os campos do anúncio (CAMPOS_CTWA), de
+ * `msg.ctwaContext` ou `msg.contextInfo.externalAdReply` (ctwaContext tem preferência quando os
+ * dois trazem o mesmo campo). Null quando não há contexto. O objeto sai cru para o servidor, que
+ * extrai o ad_id. Caminhos a confirmar no WhatsApp real (docs/CTWA.md).
+ */
+export function extrairCtwa(msg: MensagemBruta): Record<string, unknown> | null {
+  if (!msg || typeof msg !== "object") return null;
+  const saida: Record<string, unknown> = {};
+  copiarCampos(comoObjeto(msg.ctwaContext), saida);
+  copiarCampos(comoObjeto(comoObjeto(msg.contextInfo)?.externalAdReply), saida);
+  return Object.keys(saida).length > 0 ? saida : null;
+}
+
+// ---------------------------------------------------------------------------
+// Item
+// ---------------------------------------------------------------------------
+
+/** Regra do texto_abertura: padrões do heartbeat e como saber se a mensagem abre conversa. */
+export interface RegraTexto {
+  padroes: readonly string[];
+  /** Chamado só para mensagem recebida de texto. Em falha, vale "nao_sei". */
+  avaliarAbertura: (msg: MensagemBruta) => Promise<Abertura>;
+}
+
+/** Sem regra: texto_abertura sempre null (nenhum corpo lido). */
+export const SEM_TEXTO: RegraTexto = { padroes: [], avaliarAbertura: async () => "nao_sei" };
+
 /**
  * Monta o ItemMensagem de uma mensagem do WhatsApp, ou null se a mensagem deve ser ignorada
  * (grupo, status, canal, lista de transmissão, notificação, chat próprio, dados faltando).
  *
  * @param resolverTelefone telefone canônico do chat ("@c.us" direto; "@lid" best-effort).
  * @param obterContato contato do chat (WPP.contact.get), para nome da agenda e pushname.
+ * @param regraTexto padrões e avaliação de abertura para o texto_abertura (abertura.ts).
  */
 export async function montarItem(
   msg: MensagemBruta,
   meuNumero: string | null,
   resolverTelefone: (chatId: string) => Promise<string | null>,
   obterContato: (chatId: string) => Promise<ContatoBruto | undefined> = async () => undefined,
+  regraTexto: RegraTexto = SEM_TEXTO,
 ): Promise<ItemMensagem | null> {
   if (motivoParaIgnorar(msg, meuNumero) !== null) return null;
   const enviada = ehEnviada(msg);
@@ -177,9 +268,23 @@ export async function montarItem(
     enviada_em: enviadaEm,
     tipo_midia: mapearTipo(msg.type),
     contato,
-    // TODO Etapa 6: regra do texto_abertura (abre conversa ou casa com padroes_texto, máx. 300).
-    texto_abertura: null,
-    // TODO Etapa 6: contexto do anúncio de clique para WhatsApp (campos confirmados na Etapa 5).
-    ctwa: null,
+    texto_abertura: await textoAberturaDe(msg, enviada, regraTexto),
+    ctwa: extrairCtwa(msg),
   };
+}
+
+/** Aplica a regra do texto_abertura. Só consulta o histórico (e só lê o corpo) quando precisa. */
+async function textoAberturaDe(msg: MensagemBruta, enviada: boolean, regra: RegraTexto): Promise<string | null> {
+  if (!precisaAvaliarAbertura(enviada, msg.type)) return null;
+  if (typeof msg.body !== "string" || msg.body.trim() === "") return null;
+  // Casou com um padrão: a regra (b) basta e o histórico nem é consultado.
+  let abertura: Abertura = "nao_sei";
+  if (!casaAlgumPadrao(msg.body, regra.padroes)) {
+    try {
+      abertura = await regra.avaliarAbertura(msg);
+    } catch {
+      abertura = "nao_sei";
+    }
+  }
+  return decidirTextoAbertura({ enviada, tipo: msg.type, texto: msg.body, abertura, padroes: regra.padroes });
 }

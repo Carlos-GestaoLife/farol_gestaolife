@@ -1,14 +1,17 @@
-// Seção "Configuração": URL do sistema e token do dispositivo, salvos em chrome.storage.local.
+// Seção "Configuração": URL do sistema, token do dispositivo e nome deste computador (opcional,
+// só informativo e local), salvos em chrome.storage.local.
 // O token nunca volta para a tela depois de salvo: o painel só mostra se está configurado.
 // Depois de salvar, avisa o service worker (mensagem `config`, sem o token): ele relê a
 // configuração do chrome.storage.local e manda um heartbeat na hora.
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import type { StatusPiolho } from "../../shared/protocol";
+import { LIMITES, type StatusPiolho } from "../../shared/protocol";
 import { avisarConfig } from "../ponte";
 import { URL_SISTEMA_PADRAO, normalizarUrlSistema, padraoDeHost } from "../../shared/config";
 import {
+  lerNomeComputador,
   lerUrlSistema,
   removerToken,
+  salvarNomeComputador,
   salvarToken,
   salvarUrlSistema,
   tokenConfigurado,
@@ -21,16 +24,18 @@ export function Configuracao({ aoSalvar }: { aoSalvar?: (status: StatusPiolho) =
   const [urlDigitada, setUrlDigitada] = useState("");
   const [tokenOk, setTokenOk] = useState(false);
   const [tokenDigitado, setTokenDigitado] = useState("");
+  const [nomeDigitado, setNomeDigitado] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [retorno, setRetorno] = useState<Retorno>(null);
 
   useEffect(() => {
     let ativo = true;
-    void Promise.all([lerUrlSistema(), tokenConfigurado()]).then(([url, temToken]) => {
+    void Promise.all([lerUrlSistema(), tokenConfigurado(), lerNomeComputador()]).then(([url, temToken, nome]) => {
       if (!ativo) return;
       setUrlSalva(url);
       setUrlDigitada(url);
       setTokenOk(temToken);
+      setNomeDigitado(nome ?? "");
     });
     return () => {
       ativo = false;
@@ -66,6 +71,7 @@ export function Configuracao({ aoSalvar }: { aoSalvar?: (status: StatusPiolho) =
           }
         }
         await salvarUrlSistema(url);
+        await salvarNomeComputador(nomeDigitado);
         setUrlSalva(url);
         setUrlDigitada(url);
         const tokenNovo = tokenDigitado.trim();
@@ -89,7 +95,7 @@ export function Configuracao({ aoSalvar }: { aoSalvar?: (status: StatusPiolho) =
         setSalvando(false);
       }
     },
-    [urlDigitada, tokenDigitado, aoSalvar],
+    [urlDigitada, tokenDigitado, nomeDigitado, aoSalvar],
   );
 
   const remover = useCallback(async () => {
@@ -162,6 +168,21 @@ export function Configuracao({ aoSalvar }: { aoSalvar?: (status: StatusPiolho) =
             data-testid="campo-token"
           />
           <span className="campo__dica">O token é gerado na tela Dispositivos do Sistema de Leads.</span>
+        </label>
+        <label className="campo">
+          <span className="campo__rotulo">Nome deste computador (opcional)</span>
+          <input
+            className="campo__entrada"
+            type="text"
+            autoComplete="off"
+            maxLength={LIMITES.nomeComputador}
+            value={nomeDigitado}
+            onChange={(e) => setNomeDigitado(e.target.value)}
+            placeholder="Ex.: PC do comercial 2"
+            disabled={carregando}
+            data-testid="campo-nome"
+          />
+          <span className="campo__dica">Só aparece neste painel; não vai para o sistema.</span>
         </label>
         {retorno ? (
           <p className={`retorno retorno--${retorno.tom}`} role={retorno.tom === "erro" ? "alert" : "status"}>
